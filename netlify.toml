@@ -1,0 +1,6 @@
+# Netlify Configuration File for Next.js
+# This ensures Netlify builds and deploys the dynamic Next.js application correctly.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
