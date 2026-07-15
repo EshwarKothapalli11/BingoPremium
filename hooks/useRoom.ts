@@ -1,9 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { createClient } from "@/lib/supabase";
 import { ensureSession } from "@/lib/session";
 import { generateRoomCode } from "@/lib/utils";
+import {
+  fetchProfile,
+  getRoomByCode,
+  getRoomPlayers,
+  joinRoom as firestoreJoinRoom,
+  updateRoomPlayer,
+  updateRoom,
+  createRoom as firestoreCreateRoom,
+  getActiveRooms,
+  getRecentWinners,
+  getPlayerHistory as firestoreGetPlayerHistory,
+} from "@/lib/firebase/firestore";
+import {
+  subscribeToRoom,
+  type RealtimeHandlers,
+} from "@/lib/firebase/realtime";
 import type { Profile, Room, RoomPlayer } from "@/types";
 
 export function useProfile() {
@@ -11,18 +26,10 @@ export function useProfile() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function load() {
       try {
         const user = await ensureSession();
-
-        const { data } = await supabase
-          .from("profiles")
-          .select("*")
-          .eq("id", user.id)
-          .single();
-
+        const data = await fetchProfile(user.id);
         setProfile(data);
       } catch {
         setProfile(null);
@@ -47,16 +54,11 @@ export function useRoom(code: string) {
       setLoading(false);
       return null;
     }
-    const supabase = createClient();
     setLoading(true);
 
-    const { data: roomData, error: roomError } = await supabase
-      .from("rooms")
-      .select("*")
-      .eq("code", code.toUpperCase())
-      .single();
+    const roomData = await getRoomByCode(code.toUpperCase());
 
-    if (roomError || !roomData) {
+    if (!roomData) {
       setError("Room not found");
       setLoading(false);
       return null;
@@ -64,18 +66,8 @@ export function useRoom(code: string) {
 
     setRoom(roomData);
 
-    const { data: playersData } = await supabase
-      .from("room_players")
-      .select("*, profile:profiles(*)")
-      .eq("room_id", roomData.id)
-      .order("joined_at", { ascending: true });
-
-    setPlayers(
-      (playersData || []).map((p) => ({
-        ...p,
-        profile: Array.isArray(p.profile) ? p.profile[0] : p.profile,
-      }))
-    );
+    const playersData = await getRoomPlayers(roomData.id);
+    setPlayers(playersData);
 
     setLoading(false);
     return roomData;
@@ -85,15 +77,12 @@ export function useRoom(code: string) {
     fetchRoom();
   }, [fetchRoom]);
 
-  const joinRoom = useCallback(
+  const joinRoomAction = useCallback(
     async (userId: string) => {
       if (!room) return { error: "Room not loaded" };
 
-      const supabase = createClient();
-
       const existing = players.find((p) => p.player_id === userId);
       if (existing) {
-        // Already joined — just refresh to be sure
         await fetchRoom();
         return { success: true };
       }
@@ -102,15 +91,9 @@ export function useRoom(code: string) {
         return { error: "Room is full" };
       }
 
-      const { error: joinError } = await supabase.from("room_players").upsert(
-        {
-          room_id: room.id,
-          player_id: userId,
-        },
-        { onConflict: "room_id,player_id", ignoreDuplicates: true }
-      );
+      const result = await firestoreJoinRoom(room.id, userId);
+      if (result.error) return { error: result.error };
 
-      if (joinError) return { error: joinError.message };
       await fetchRoom();
       return { success: true };
     },
@@ -119,64 +102,23 @@ export function useRoom(code: string) {
 
   const setReady = useCallback(
     async (userId: string, ready: boolean) => {
-      const supabase = createClient();
-      await supabase
-        .from("room_players")
-        .update({ is_ready: ready })
-        .eq("room_id", room?.id)
-        .eq("player_id", userId);
+      if (!room?.id) return;
+      await updateRoomPlayer(room.id, userId, { is_ready: ready });
     },
     [room?.id]
   );
 
   const startGame = useCallback(async () => {
     if (!room) return;
-    const supabase = createClient();
-    await supabase
-      .from("rooms")
-      .update({ status: "matrix", started_at: new Date().toISOString() })
-      .eq("id", room.id);
+    await updateRoom(room.id, {
+      status: "matrix",
+      started_at: new Date().toISOString(),
+    });
   }, [room]);
 
   const createRoom = useCallback(
     async (name: string, hostId: string, maxPlayers: number) => {
-      const supabase = createClient();
-      let code = generateRoomCode();
-      let attempts = 0;
-
-      while (attempts < 5) {
-        const { data: existing } = await supabase
-          .from("rooms")
-          .select("id")
-          .eq("code", code)
-          .maybeSingle();
-
-        if (!existing) break;
-        code = generateRoomCode();
-        attempts++;
-      }
-
-      const { data: roomData, error: roomError } = await supabase
-        .from("rooms")
-        .insert({
-          code,
-          name,
-          host_id: hostId,
-          max_players: maxPlayers,
-          status: "waiting",
-        })
-        .select()
-        .single();
-
-      if (roomError || !roomData) return { error: roomError?.message };
-
-      await supabase.from("room_players").insert({
-        room_id: roomData.id,
-        player_id: hostId,
-        is_ready: true,
-      });
-
-      return { room: roomData };
+      return await firestoreCreateRoom(name, hostId, maxPlayers);
     },
     []
   );
@@ -187,7 +129,7 @@ export function useRoom(code: string) {
     loading,
     error,
     fetchRoom,
-    joinRoom,
+    joinRoom: joinRoomAction,
     setReady,
     startGame,
     createRoom,
@@ -200,37 +142,23 @@ export function useActiveRooms() {
   const [rooms, setRooms] = useState<(Room & { player_count: number })[]>([]);
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function load() {
-      const { data } = await supabase
-        .from("rooms")
-        .select("*, room_players(count)")
-        .in("status", ["waiting", "matrix"])
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      setRooms(
-        (data || []).map((r) => ({
-          ...r,
-          player_count: r.room_players?.[0]?.count ?? 0,
-        }))
-      );
+      const data = await getActiveRooms();
+      setRooms(data);
     }
 
     load();
 
-    const channel = supabase
-      .channel("active-rooms")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "rooms" },
-        () => load()
-      )
-      .subscribe();
+    // Set up realtime listener for room changes
+    const unsub = subscribeToRoom("__active_rooms__", {});
+
+    // Poll for updates since we can't easily listen to a top-level collection
+    // with our room-based subscription model. Use a simple interval.
+    const interval = setInterval(() => load(), 5000);
 
     return () => {
-      supabase.removeChannel(channel);
+      unsub();
+      clearInterval(interval);
     };
   }, []);
 
@@ -243,23 +171,9 @@ export function useRecentWinners() {
   >([]);
 
   useEffect(() => {
-    const supabase = createClient();
-
     async function load() {
-      const { data } = await supabase
-        .from("history")
-        .select("moves, duration, created_at, winner:profiles(username)")
-        .order("created_at", { ascending: false })
-        .limit(5);
-
-      setWinners(
-        (data || []).map((h) => ({
-          username: (Array.isArray(h.winner) ? h.winner[0] : h.winner)?.username ?? "Unknown",
-          moves: h.moves,
-          duration: h.duration,
-          created_at: h.created_at,
-        }))
-      );
+      const data = await getRecentWinners();
+      setWinners(data);
     }
 
     load();
@@ -275,27 +189,10 @@ export function usePlayerHistory(userId: string | undefined) {
 
   useEffect(() => {
     if (!userId) return;
-    const supabase = createClient();
 
     async function load() {
-      const { data: playerRooms } = await supabase
-        .from("room_players")
-        .select("moves, room:rooms(name, winner_id, created_at)")
-        .eq("player_id", userId)
-        .order("joined_at", { ascending: false })
-        .limit(10);
-
-      setHistory(
-        (playerRooms || []).map((pr) => {
-          const room = Array.isArray(pr.room) ? pr.room[0] : pr.room;
-          return {
-            room_name: room?.name ?? "Unknown",
-            result: room?.winner_id === userId ? "Won" : "Lost",
-            moves: pr.moves,
-            date: room?.created_at ?? "",
-          };
-        })
-      );
+      const data = await firestoreGetPlayerHistory(userId!);
+      setHistory(data);
     }
 
     load();

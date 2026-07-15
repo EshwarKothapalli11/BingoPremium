@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase";
 import { useRoom } from "@/hooks/useRoom";
 import { useRealtime } from "@/hooks/useRealtime";
 import { useGame } from "@/hooks/useGame";
@@ -11,6 +10,11 @@ import { MatrixEntry } from "@/components/game/MatrixEntry";
 import { GameView } from "@/components/game/GameView";
 import { Navbar } from "@/components/ui/Navbar";
 import { GlassCard } from "@/components/ui/GlassCard";
+import {
+  getRoomPlayers,
+  updateRoom,
+  submitBoardTransaction,
+} from "@/lib/firebase/firestore";
 import type { Profile, Room, RoomPlayer } from "@/types";
 
 interface RoomPageClientProps {
@@ -33,7 +37,7 @@ export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
     fetchRoom,
   } = useRoom(code);
 
-  const { submitBoard } = useGame(room?.id ?? null, profile.id, null);
+  useGame(room?.id ?? null, profile.id, null);
   const [joined, setJoined] = useState(false);
 
   useEffect(() => {
@@ -60,34 +64,21 @@ export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
   );
 
   const currentPlayer = players.find((p) => p.player_id === profile.id);
-  const roomPlayerId = currentPlayer?.id ?? null;
 
   const handleSubmitBoard = useCallback(
     async (board: number[][]) => {
-      if (!roomPlayerId || !room) return;
-      const supabase = createClient();
-      await supabase
-        .from("room_players")
-        .update({
-          board,
-          has_submitted_board: true,
-          marked: Array.from({ length: 5 }, () => Array(5).fill(false)),
-        })
-        .eq("id", roomPlayerId);
+      if (!profile.id || !room) return;
 
-      const { data: allPlayers } = await supabase
-        .from("room_players")
-        .select("has_submitted_board")
-        .eq("room_id", room.id);
+      const allPlayerIds = players.map((p) => p.player_id);
 
-      const allSubmitted = (allPlayers || []).every((p) => p.has_submitted_board);
-      if (allSubmitted) {
-        await supabase.from("rooms").update({ status: "playing" }).eq("id", room.id);
-      }
-
-      await fetchRoom();
+      await submitBoardTransaction(
+        room.id,
+        profile.id,
+        board,
+        allPlayerIds
+      );
     },
-    [roomPlayerId, room, fetchRoom]
+    [profile.id, room, players]
   );
 
   if (loading) {

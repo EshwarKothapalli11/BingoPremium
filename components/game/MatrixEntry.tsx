@@ -73,6 +73,26 @@ export function MatrixEntry({ onSubmit, submitted, waitingCount }: MatrixEntryPr
     }
   };
 
+  const autoFill = useCallback(() => {
+    const numbers = Array.from({ length: 25 }, (_, i) => i + 1);
+    // Fisher-Yates shuffle
+    for (let i = numbers.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [numbers[i], numbers[j]] = [numbers[j], numbers[i]];
+    }
+    
+    const newBoard: number[][] = [];
+    for (let i = 0; i < 5; i++) {
+      newBoard.push(numbers.slice(i * 5, i * 5 + 5));
+    }
+    setBoard(newBoard);
+  }, []);
+
+  const manualFill = useCallback(() => {
+    setBoard(createEmptyBoardGrid());
+    inputRefs.current[0]?.[0]?.focus();
+  }, []);
+
   if (submitted) {
     return (
       <GlassCard className="p-8 text-center max-w-md mx-auto">
@@ -100,6 +120,15 @@ export function MatrixEntry({ onSubmit, submitted, waitingCount }: MatrixEntryPr
         Fill in 25 unique integers ≥ 1. Use arrow keys, Enter, and Tab to navigate.
       </p>
 
+      <div className="flex gap-3 mb-6">
+        <BingoButton variant="primary" className="flex-1" onClick={autoFill}>
+          🎲 Auto Fill
+        </BingoButton>
+        <BingoButton variant="secondary" className="flex-1" onClick={manualFill}>
+          ✍ Manual Fill
+        </BingoButton>
+      </div>
+
       <div className="grid grid-cols-5 gap-2 mb-6">
         {board.map((row, r) =>
           row.map((cell, c) => {
@@ -107,7 +136,7 @@ export function MatrixEntry({ onSubmit, submitted, waitingCount }: MatrixEntryPr
             const isFocused = focused[0] === r && focused[1] === c;
 
             return (
-              <input
+               <input
                 key={`${r}-${c}`}
                 ref={(el) => {
                   if (!inputRefs.current[r]) inputRefs.current[r] = [];

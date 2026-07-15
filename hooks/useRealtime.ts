@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { createClient } from "@/lib/supabase";
-import type { RealtimeHandlers } from "@/lib/realtime";
-import { subscribeToRoom, unsubscribeChannel } from "@/lib/realtime";
+import { subscribeToRoom, type RealtimeHandlers } from "@/lib/firebase/realtime";
 
 export function useRealtime(
   roomId: string | null,
@@ -20,23 +18,17 @@ export function useRealtime(
   useEffect(() => {
     if (!roomId) return;
 
-    const supabase = createClient();
-    const channel = subscribeToRoom(
-      supabase,
-      roomId,
-      {
-        onRoomChange: (room) => handlersRef.current.onRoomChange?.(room),
-        onPlayerChange: (player, event) =>
-          handlersRef.current.onPlayerChange?.(player, event),
-        onGameEvent: (event) => handlersRef.current.onGameEvent?.(event),
-        onMessage: (message) => handlersRef.current.onMessage?.(message),
-        onSubscribed: () => setConnected(true),
-      },
-      channelKey
-    );
+    const unsubscribe = subscribeToRoom(roomId, {
+      onRoomChange: (room) => handlersRef.current.onRoomChange?.(room),
+      onPlayerChange: (player, event) =>
+        handlersRef.current.onPlayerChange?.(player, event),
+      onGameEvent: (event) => handlersRef.current.onGameEvent?.(event),
+      onMessage: (message) => handlersRef.current.onMessage?.(message),
+      onSubscribed: () => setConnected(true),
+    });
 
     return () => {
-      unsubscribeChannel(supabase, channel);
+      unsubscribe();
       setConnected(false);
     };
   }, [roomId, channelKey]);

@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Profiles ────────────────────────────────────────────
+    match /profiles/{userId} {
+      // Anyone can read profiles (for displaying usernames, avatars)
+      allow read: if request.auth != null;
+      // Users can only create/update their own profile
+      allow create: if request.auth != null && request.auth.uid == userId;
+      allow update: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ─── Rooms ───────────────────────────────────────────────
+    match /rooms/{roomId} {
+      // Any authenticated user can read rooms (for browsing/joining)
+      allow read: if request.auth != null;
+      // Any authenticated user can create a room
+      allow create: if request.auth != null;
+      // Host can update anything.
+      // Other players can ONLY update specific fields for strict game state transitions.
+      allow update: if request.auth != null
+        && (
+          resource.data.host_id == request.auth.uid
+          || (
+            // Transition from matrix to playing (when last player submits board)
+            resource.data.status == 'matrix'
+            && request.resource.data.status == 'playing'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          )
+          || (
+            // Transition from playing to finished (when a player wins)
+            resource.data.status == 'playing'
+            && request.resource.data.status == 'finished'
+            && request.resource.data.winner_id == request.auth.uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'winner_id'])
+          )
+        );
+
+      // ─── Players subcollection ──────────────────────────────
+      match /players/{playerId} {
+        // Any authenticated user can read players in a room
+        allow read: if request.auth != null;
+        // Users can only create/update their own player document
+        allow create: if request.auth != null && request.auth.uid == playerId;
+        allow update: if request.auth != null && request.auth.uid == playerId;
+        // Users can only delete their own player document (leave room)
+        allow delete: if request.auth != null && request.auth.uid == playerId;
+      }
+
+      // ─── Game Events subcollection ──────────────────────────
+      match /game_events/{eventId} {
+        // Any authenticated user can read game events
+        allow read: if request.auth != null;
+        // Users can only create events for themselves
+        allow create: if request.auth != null
+          && request.resource.data.player_id == request.auth.uid;
+      }
+
+      // ─── Messages subcollection ─────────────────────────────
+      match /messages/{messageId} {
+        // Any authenticated user can read messages
+        allow read: if request.auth != null;
+        // Users can only send messages as themselves
+        allow create: if request.auth != null
+          && request.resource.data.player_id == request.auth.uid;
+      }
+    }
+
+    // ─── History ─────────────────────────────────────────────
+    match /history/{historyId} {
+      // Anyone can read history (global leaderboard)
+      allow read: if request.auth != null;
+      // Any authenticated user can write history entries
+      allow create: if request.auth != null;
+    }
+  }
+}

@@ -11,7 +11,12 @@ import { LiveMovesFeed, type LiveMove } from "@/components/game/LiveMovesFeed";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useGame, useGameChat } from "@/hooks/useGame";
 import { useRealtime } from "@/hooks/useRealtime";
-import { createClient } from "@/lib/supabase";
+import {
+  getMessages,
+  getGameEvents,
+  getRoomPlayers,
+  fetchProfile,
+} from "@/lib/firebase/firestore";
 import { formatDuration } from "@/lib/utils";
 import type { GameEvent, Message, Profile, Room, RoomPlayer } from "@/types";
 
@@ -61,80 +66,63 @@ export function GameView({
     return () => clearInterval(interval);
   }, []);
 
+  // Load existing messages
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from("messages")
-      .select("*, profile:profiles(*)")
-      .eq("room_id", room.id)
-      .order("created_at", { ascending: true })
-      .then(({ data }) => {
-        setMessages(
-          (data || []).map((m) => ({
-            ...m,
-            profile: Array.isArray(m.profile) ? m.profile[0] : m.profile,
-          }))
-        );
-      });
+    async function loadMessages() {
+      const msgs = await getMessages(room.id);
+      // Attach profiles
+      const msgsWithProfiles: (Message & { profile?: Profile })[] = [];
+      for (const msg of msgs) {
+        const profile = await fetchProfile(msg.player_id);
+        msgsWithProfiles.push({
+          ...msg,
+          profile: profile ?? undefined,
+        });
+      }
+      setMessages(msgsWithProfiles);
+    }
+    loadMessages();
   }, [room.id]);
 
   // Load existing game events on mount to populate the live feed
   useEffect(() => {
-    const supabase = createClient();
-    supabase
-      .from("game_events")
-      .select("*, profile:profiles(*)")
-      .eq("room_id", room.id)
-      .eq("event_type", "cell_cancelled")
-      .order("created_at", { ascending: true })
-      .limit(50)
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          const existingMoves: LiveMove[] = data.map((ev) => {
-            const profile = Array.isArray(ev.profile) ? ev.profile[0] : ev.profile;
-            const payload = ev.payload as Record<string, unknown>;
-            const evPlayer = players.find((p) => p.player_id === ev.player_id);
-            const playerBoard = evPlayer?.board as number[][] | null;
-            const row = (payload.row as number) ?? 0;
-            const col = (payload.col as number) ?? 0;
-            let cellNumber: number | undefined;
-            if (playerBoard && playerBoard[row] && playerBoard[row][col]) {
-              cellNumber = playerBoard[row][col];
-            }
+    async function loadEvents() {
+      const events = await getGameEvents(room.id, "cell_cancelled", 50);
+      if (events.length > 0) {
+        const existingMoves: LiveMove[] = events.map((ev) => {
+          const evPlayer = players.find((p) => p.player_id === ev.player_id);
+          const payload = ev.payload as Record<string, unknown>;
+          const playerBoard = evPlayer?.board as number[][] | null;
+          const row = (payload.row as number) ?? 0;
+          const col = (payload.col as number) ?? 0;
+          let cellNumber: number | undefined;
+          if (playerBoard && playerBoard[row] && playerBoard[row][col]) {
+            cellNumber = playerBoard[row][col];
+          }
 
-            return {
-              id: ev.id,
-              playerName: profile?.username ?? evPlayer?.profile?.username ?? "Player",
-              playerId: ev.player_id,
-              avatarUrl: profile?.avatar_url ?? evPlayer?.profile?.avatar_url,
-              number: cellNumber,
-              row,
-              col,
-              marked: (payload.marked as boolean) ?? true,
-              moves: (payload.moves as number) ?? 0,
-              timestamp: new Date(ev.created_at).getTime(),
-            };
-          });
-          setLiveMoves(existingMoves);
-        }
-      });
+          return {
+            id: ev.id,
+            playerName: evPlayer?.profile?.username ?? "Player",
+            playerId: ev.player_id,
+            avatarUrl: evPlayer?.profile?.avatar_url,
+            number: cellNumber,
+            row,
+            col,
+            marked: (payload.marked as boolean) ?? true,
+            moves: (payload.moves as number) ?? 0,
+            timestamp: new Date(ev.created_at).getTime(),
+          };
+        });
+        setLiveMoves(existingMoves);
+      }
+    }
+    loadEvents();
   }, [room.id, players]);
 
   const refreshPlayers = useCallback(async () => {
-    const supabase = createClient();
-    const { data } = await supabase
-      .from("room_players")
-      .select("*, profile:profiles(*)")
-      .eq("room_id", room.id)
-      .order("joined_at", { ascending: true });
-
+    const data = await getRoomPlayers(room.id);
     if (data) {
-      onPlayersUpdate(
-        data.map((p) => ({
-          ...p,
-          profile: Array.isArray(p.profile) ? p.profile[0] : p.profile,
-        }))
-      );
+      onPlayersUpdate(data);
     }
   }, [room.id, onPlayersUpdate]);
 
@@ -200,12 +188,7 @@ export function GameView({
       onRoomUpdate(updatedRoom);
     },
     onMessage: async (msg) => {
-      const supabase = createClient();
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", msg.player_id)
-        .single();
+      const profile = await fetchProfile(msg.player_id);
       setMessages((prev) => [...prev, { ...msg, profile: profile ?? undefined }]);
     },
     onGameEvent: handleGameEvent,

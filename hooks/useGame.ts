@@ -1,9 +1,21 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { createClient } from "@/lib/supabase";
 import { detectBingoState, toggleCell } from "@/lib/bingo-logic";
 import { createEmptyMarkedGrid } from "@/lib/utils";
+import {
+  getRoomPlayerDoc,
+  updateRoomPlayer,
+  insertGameEvent,
+  updateRoom,
+  fetchRoom as firestoreFetchRoom,
+  getRoomPlayerCount,
+  insertHistory,
+  fetchProfile,
+  updateProfile,
+  getRoomPlayers,
+  insertMessage,
+} from "@/lib/firebase/firestore";
 import type { MarkedGrid, RoomPlayer } from "@/types";
 
 export function useGame(
@@ -16,9 +28,11 @@ export function useGame(
 
   const cancelCell = useCallback(
     async (row: number, col: number) => {
-      if (!roomId || !playerId || !roomPlayerId) return;
+      if (!roomId || !playerId) return;
 
-      const supabase = createClient();
+      // In Firestore, room_player doc ID = playerId (not a separate UUID)
+      const effectivePlayerId = roomPlayerId || playerId;
+
       const nextMarked = toggleCell(marked, row, col);
       const prevMarked = marked[row][col];
       const newMarked = !prevMarked;
@@ -29,26 +43,18 @@ export function useGame(
 
       const bingoState = detectBingoState(nextMarked);
 
-      const { data: current } = await supabase
-        .from("room_players")
-        .select("moves, completed_lines")
-        .eq("id", roomPlayerId)
-        .single();
-
+      const current = await getRoomPlayerDoc(roomId, effectivePlayerId);
       const newMoves = (current?.moves ?? 0) + 1;
 
-      await supabase
-        .from("room_players")
-        .update({
-          marked: nextMarked,
-          moves: newMoves,
-          completed_lines: bingoState.completedLines,
-          bingo_letters: bingoState.bingoLetters,
-          lines_completed: bingoState.linesCompleted,
-        })
-        .eq("id", roomPlayerId);
+      await updateRoomPlayer(roomId, effectivePlayerId, {
+        marked: nextMarked,
+        moves: newMoves,
+        completed_lines: bingoState.completedLines,
+        bingo_letters: bingoState.bingoLetters,
+        lines_completed: bingoState.linesCompleted,
+      });
 
-      await supabase.from("game_events").insert({
+      await insertGameEvent(roomId, {
         room_id: roomId,
         player_id: playerId,
         event_type: newMarked ? "cell_cancelled" : "cell_cancelled",
@@ -56,7 +62,7 @@ export function useGame(
       });
 
       if (bingoState.bingoLetters > (current?.completed_lines?.length ?? 0)) {
-        await supabase.from("game_events").insert({
+        await insertGameEvent(roomId, {
           room_id: roomId,
           player_id: playerId,
           event_type: "bingo_letter",
@@ -65,78 +71,52 @@ export function useGame(
       }
 
       if (bingoState.hasBingo) {
-        await supabase.from("game_events").insert({
+        await insertGameEvent(roomId, {
           room_id: roomId,
           player_id: playerId,
           event_type: "game_won",
           payload: { moves: newMoves, lines: bingoState.linesCompleted },
         });
 
-        await supabase
-          .from("rooms")
-          .update({ status: "finished", winner_id: playerId })
-          .eq("id", roomId);
+        await updateRoom(roomId, {
+          status: "finished",
+          winner_id: playerId,
+        });
 
-        const { data: room } = await supabase
-          .from("rooms")
-          .select("started_at")
-          .eq("id", roomId)
-          .single();
-
+        const room = await firestoreFetchRoom(roomId);
         const duration = room?.started_at
           ? formatElapsed(room.started_at)
           : "0:00";
 
-        const { count } = await supabase
-          .from("room_players")
-          .select("*", { count: "exact", head: true })
-          .eq("room_id", roomId);
+        const playerCount = await getRoomPlayerCount(roomId);
 
-        await supabase.from("history").insert({
+        await insertHistory({
           room_id: roomId,
           winner_id: playerId,
           moves: newMoves,
           duration,
-          players_count: count ?? 2,
+          players_count: playerCount,
         });
 
-        const { data: winnerProfile } = await supabase
-          .from("profiles")
-          .select("games_played, games_won, total_moves")
-          .eq("id", playerId)
-          .single();
-
+        const winnerProfile = await fetchProfile(playerId);
         if (winnerProfile) {
-          await supabase
-            .from("profiles")
-            .update({
-              games_won: winnerProfile.games_won + 1,
-              games_played: winnerProfile.games_played + 1,
-              total_moves: winnerProfile.total_moves + newMoves,
-            })
-            .eq("id", playerId);
+          await updateProfile(playerId, {
+            games_won: winnerProfile.games_won + 1,
+            games_played: winnerProfile.games_played + 1,
+            total_moves: winnerProfile.total_moves + newMoves,
+          });
         }
 
-        const losers = await supabase
-          .from("room_players")
-          .select("player_id, moves")
-          .eq("room_id", roomId)
-          .neq("player_id", playerId);
+        const allPlayers = await getRoomPlayers(roomId);
+        const losers = allPlayers.filter((p) => p.player_id !== playerId);
 
-        for (const loser of losers.data ?? []) {
-          const { data: lp } = await supabase
-            .from("profiles")
-            .select("games_played, total_moves")
-            .eq("id", loser.player_id)
-            .single();
+        for (const loser of losers) {
+          const lp = await fetchProfile(loser.player_id);
           if (lp) {
-            await supabase
-              .from("profiles")
-              .update({
-                games_played: lp.games_played + 1,
-                total_moves: lp.total_moves + loser.moves,
-              })
-              .eq("id", loser.player_id);
+            await updateProfile(loser.player_id, {
+              games_played: lp.games_played + 1,
+              total_moves: lp.total_moves + loser.moves,
+            });
           }
         }
       }
@@ -144,38 +124,6 @@ export function useGame(
     [roomId, playerId, roomPlayerId, marked]
   );
 
-  const submitBoard = useCallback(
-    async (board: number[][]) => {
-      if (!roomPlayerId || !roomId) return;
-
-      const supabase = createClient();
-      const emptyMarked = createEmptyMarkedGrid();
-
-      await supabase
-        .from("room_players")
-        .update({
-          board,
-          marked: emptyMarked,
-          has_submitted_board: true,
-        })
-        .eq("id", roomPlayerId);
-
-      const { data: allPlayers } = await supabase
-        .from("room_players")
-        .select("has_submitted_board")
-        .eq("room_id", roomId);
-
-      const allSubmitted = (allPlayers || []).every((p) => p.has_submitted_board);
-
-      if (allSubmitted) {
-        await supabase
-          .from("rooms")
-          .update({ status: "playing" })
-          .eq("id", roomId);
-      }
-    },
-    [roomPlayerId, roomId]
-  );
 
   const syncFromPlayer = useCallback((player: RoomPlayer) => {
     if (player.marked) {
@@ -188,7 +136,6 @@ export function useGame(
     setMarked,
     animatingCell,
     cancelCell,
-    submitBoard,
     syncFromPlayer,
   };
 }
@@ -204,8 +151,7 @@ export function useGameChat(roomId: string | null, playerId: string | null) {
   const sendMessage = useCallback(
     async (content: string) => {
       if (!roomId || !playerId || !content.trim()) return;
-      const supabase = createClient();
-      await supabase.from("messages").insert({
+      await insertMessage(roomId, {
         room_id: roomId,
         player_id: playerId,
         content: content.trim(),
