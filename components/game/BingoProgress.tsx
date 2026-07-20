@@ -26,7 +26,7 @@ export function BingoProgress({ lettersEarned, size = "md", pulseLetter }: Bingo
               badgeSize,
               earned
                 ? "bingo-badge-earned shadow-md shadow-primary/30"
-                : "glass-badge text-text-muted"
+                : "glass-badge text-slate-400"
             )}
             style={pulsing ? { animation: "badgePulse 400ms ease-out" } : undefined}
           >

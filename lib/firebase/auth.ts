@@ -6,10 +6,6 @@ export interface GuestSession {
   id: string;
 }
 
-function guestUsername(userId: string): string {
-  return `Guest-${userId.slice(0, 6).toUpperCase()}`;
-}
-
 /**
  * Wait for Firebase Auth to resolve its persistence state.
  * Returns the current user if already signed in, or null.
@@ -32,10 +28,10 @@ export function getGuestId(): string {
 }
 
 /**
- * Ensures a guest session exists by signing in anonymously if needed.
- * Creates/updates the Firestore profile document.
+ * Ensures a session exists by signing in anonymously if needed.
+ * Creates/updates the Firestore profile document with the player name.
  */
-export async function ensureSession(): Promise<GuestSession> {
+export async function ensureSession(playerName?: string): Promise<GuestSession> {
   if (typeof window === "undefined") {
     throw new Error("Cannot create session on server");
   }
@@ -53,21 +49,24 @@ export async function ensureSession(): Promise<GuestSession> {
     throw new Error("Could not create guest session");
   }
 
-  await ensureProfile(user.uid);
+  if (playerName) {
+    await ensureProfile(user.uid, playerName);
+  }
+  
   return { id: user.uid };
 }
 
 /**
- * Check if a profile exists; create it if missing, fix empty usernames.
+ * Check if a profile exists; create it if missing, update name if changed.
  */
-async function ensureProfile(userId: string): Promise<void> {
+async function ensureProfile(userId: string, playerName: string): Promise<void> {
   const profileRef = doc(db, "profiles", userId);
   const snap = await getDoc(profileRef);
 
   if (!snap.exists()) {
     await setDoc(profileRef, {
       id: userId,
-      username: guestUsername(userId),
+      username: playerName,
       avatar_url: null,
       games_played: 0,
       games_won: 0,
@@ -78,8 +77,8 @@ async function ensureProfile(userId: string): Promise<void> {
   }
 
   const data = snap.data();
-  if (!data.username?.trim()) {
-    await updateDoc(profileRef, { username: guestUsername(userId) });
+  if (data.username !== playerName) {
+    await updateDoc(profileRef, { username: playerName });
   }
 }
 

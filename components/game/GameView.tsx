@@ -224,7 +224,7 @@ export function GameView({
     <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr_280px] gap-6 max-w-7xl mx-auto">
       {/* Left — Opponents */}
       <div className="space-y-3 order-2 lg:order-1">
-        <h3 className="font-semibold text-sm text-text-muted px-1">Opponents</h3>
+        <h3 className="font-semibold text-sm text-slate-500 px-1 uppercase tracking-wider">Opponents</h3>
         {opponents.map((opp) => (
           <OpponentCard
             key={opp.id}
@@ -234,7 +234,7 @@ export function GameView({
           />
         ))}
         {opponents.length === 0 && (
-          <GlassCard className="p-4 text-sm text-text-muted text-center">
+          <GlassCard className="p-4 text-sm text-slate-500 text-center font-medium border border-slate-200">
             No opponents yet
           </GlassCard>
         )}
@@ -258,27 +258,27 @@ export function GameView({
           showHeaders={false}
         />
 
-        <p className="mt-4 text-sm text-text-muted">
-          Moves: <span className="font-semibold text-text-primary">{currentPlayer?.moves ?? 0}</span>
+        <p className="mt-4 text-sm text-slate-500 font-medium bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200">
+          Moves: <span className="font-bold text-primary text-base">{currentPlayer?.moves ?? 0}</span>
         </p>
       </div>
 
       {/* Right — Stats, Live Feed & Chat */}
       <div className="space-y-4 order-3">
-        <GlassCard className="p-4">
-          <h3 className="font-semibold text-sm mb-3">Game Stats</h3>
+        <GlassCard className="p-4 shadow-sm">
+          <h3 className="font-semibold text-sm mb-3 text-slate-800">Game Stats</h3>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div>
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
               <p className="text-xl font-bold text-primary">{currentPlayer?.moves ?? 0}</p>
-              <p className="text-xs text-text-muted">Moves</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Moves</p>
             </div>
-            <div>
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
               <p className="text-xl font-bold text-primary">{currentPlayer?.lines_completed ?? 0}</p>
-              <p className="text-xs text-text-muted">Lines</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Lines</p>
             </div>
-            <div>
+            <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
               <p className="text-xl font-bold text-primary">{formatDuration(room.started_at)}</p>
-              <p className="text-xs text-text-muted">Time</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Time</p>
             </div>
           </div>
         </GlassCard>

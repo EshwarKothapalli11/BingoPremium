@@ -6,6 +6,7 @@ import { BingoButton } from "@/components/ui/BingoButton";
 import { Avatar } from "@/components/ui/Avatar";
 import type { Room, RoomPlayer } from "@/types";
 import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface LobbyViewProps {
   room: Room;
@@ -41,64 +42,87 @@ export function LobbyView({
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <GlassCard className="p-8 text-center">
-        <p className="text-sm text-text-muted mb-2">Room Code</p>
-        <div className="flex items-center justify-center gap-4 mb-4">
-          <span className="text-5xl font-extrabold tracking-[0.3em] text-primary">
-            {room.code}
-          </span>
-          <BingoButton variant="secondary" size="sm" onClick={handleCopyCode}>
-            {copied ? "Copied!" : "Copy"}
+    <div className="max-w-3xl mx-auto space-y-8 relative z-10">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <GlassCard className="p-10 text-center shadow-xl">
+          <p className="text-sm font-semibold text-slate-500 uppercase tracking-widest mb-3">Room Code</p>
+          <div className="flex items-center justify-center gap-6 mb-6">
+            <span className="text-6xl font-black tracking-[0.3em] text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent drop-shadow-sm">
+              {room.code}
+            </span>
+            <BingoButton variant="secondary" size="sm" onClick={handleCopyCode} className="px-6 py-3 font-bold">
+              {copied ? "Copied!" : "Copy"}
+            </BingoButton>
+          </div>
+          <p className="text-2xl font-extrabold mb-2 text-slate-900">{room.name}</p>
+          <p className="text-sm font-medium text-slate-500 mb-6">
+            {players.length}/{room.max_players} players
+          </p>
+          <BingoButton variant="secondary" size="sm" onClick={handleShareLink} className="font-bold">
+            📋 Share Link
           </BingoButton>
-        </div>
-        <p className="text-lg font-semibold mb-1">{room.name}</p>
-        <p className="text-sm text-text-muted mb-4">
-          {players.length}/{room.max_players} players
-        </p>
-        <BingoButton variant="secondary" size="sm" onClick={handleShareLink}>
-          📋 Share Link
-        </BingoButton>
-      </GlassCard>
+        </GlassCard>
+      </motion.div>
 
-      <GlassCard className="p-6">
-        <h3 className="font-semibold mb-4">Players in Lobby</h3>
-        <div className="space-y-3">
-          {players.map((player) => (
-            <div
-              key={player.id}
-              className="flex items-center gap-3 p-3 rounded-xl bg-white/40 animate-slide-in"
-            >
-              <Avatar
-                name={player.profile?.username ?? "P"}
-                avatarUrl={player.profile?.avatar_url}
-              />
-              <div className="flex-1">
-                <p className="font-medium">
-                  {player.profile?.username ?? "Player"}
-                  {player.player_id === room.host_id && (
-                    <span className="text-xs text-accent ml-2">Host</span>
-                  )}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "text-xs font-semibold px-3 py-1 rounded-full",
-                  player.is_ready
-                    ? "bg-success/15 text-success"
-                    : "bg-white/60 text-text-muted"
-                )}
-              >
-                {player.is_ready ? "Ready" : "Not Ready"}
-              </span>
-            </div>
-          ))}
-        </div>
-      </GlassCard>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+      >
+        <GlassCard className="p-8 shadow-lg">
+          <h3 className="font-extrabold text-xl mb-6 text-slate-900">Players in Lobby</h3>
+          <div className="space-y-4">
+            <AnimatePresence>
+              {players.map((player) => (
+                <motion.div
+                  key={player.id}
+                  initial={{ opacity: 0, scale: 0.95, x: -20 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, x: 20 }}
+                  transition={{ type: "spring", stiffness: 100, damping: 15 }}
+                  className="flex items-center gap-4 p-4 rounded-2xl bg-white border border-slate-200 shadow-sm"
+                >
+                  <Avatar
+                    name={player.profile?.username ?? "P"}
+                    avatarUrl={player.profile?.avatar_url}
+                  />
+                  <div className="flex-1">
+                    <p className="font-bold text-lg text-slate-900">
+                      {player.profile?.username ?? "Player"}
+                      {player.player_id === room.host_id && (
+                        <span className="text-xs font-black uppercase tracking-wider text-primary ml-3 bg-primary/10 px-2 py-1 rounded-md">Host</span>
+                      )}
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      "text-sm font-bold px-4 py-2 rounded-xl transition-colors border",
+                      player.is_ready
+                        ? "bg-emerald-50 text-emerald-700 border-emerald-200 shadow-[0_0_15px_rgba(16,185,129,0.1)]"
+                        : "bg-slate-50 text-slate-500 border-slate-200"
+                    )}
+                  >
+                    {player.is_ready ? "Ready" : "Not Ready"}
+                  </span>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+        </GlassCard>
+      </motion.div>
 
-      <div className="flex justify-center gap-4">
+      <motion.div 
+        className="flex justify-center gap-6"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.4 }}
+      >
         {isHost ? (
-          <BingoButton size="lg" disabled={!canStart} onClick={onStart}>
+          <BingoButton size="lg" disabled={!canStart} onClick={onStart} className="px-12 py-5 text-xl font-black shadow-xl shadow-primary/20">
             Start Game
           </BingoButton>
         ) : (
@@ -106,18 +130,23 @@ export function LobbyView({
             size="lg"
             variant={currentPlayer?.is_ready ? "secondary" : "primary"}
             onClick={() => onReady(!currentPlayer?.is_ready)}
+            className={`px-12 py-5 text-xl font-black shadow-xl ${currentPlayer?.is_ready ? 'shadow-sm' : 'shadow-primary/20'}`}
           >
             {currentPlayer?.is_ready ? "Not Ready" : "Mark Ready"}
           </BingoButton>
         )}
-      </div>
+      </motion.div>
 
       {isHost && !canStart && (
-        <p className="text-center text-sm text-text-muted">
+        <motion.p 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="text-center text-sm font-medium text-slate-500"
+        >
           {players.length < 2
             ? "Waiting for more players to join…"
             : "Waiting for all players to be ready…"}
-        </p>
+        </motion.p>
       )}
     </div>
   );

@@ -35,15 +35,15 @@ export function OpponentCard({ player, flash, lastMove }: OpponentCardProps) {
   return (
     <GlassCard
       className={cn(
-        "p-4 transition-all duration-150 relative overflow-hidden",
+        "p-4 transition-all duration-150 relative overflow-hidden shadow-sm",
         flash && "animate-flash"
       )}
     >
       {/* Move toast overlay */}
       {showMoveToast && lastMove && (
         <div className="absolute top-2 right-2 z-10 animate-slide-in">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-primary/15 border border-primary/25 text-[10px] font-semibold text-primary backdrop-blur-sm">
-            <span className="w-4 h-4 rounded bg-primary/20 flex items-center justify-center text-[9px]">
+          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-50 border border-blue-200 text-[10px] font-semibold text-blue-700 shadow-sm backdrop-blur-sm">
+            <span className="w-4 h-4 rounded bg-blue-100 flex items-center justify-center text-[9px]">
               {lastMove.number ?? "?"}
             </span>
             cancelled
@@ -54,8 +54,8 @@ export function OpponentCard({ player, flash, lastMove }: OpponentCardProps) {
       <div className="flex items-center gap-3 mb-3">
         <Avatar name={name} avatarUrl={player.profile?.avatar_url} size="sm" />
         <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sm truncate">{name}</p>
-          <p className="text-xs text-text-muted">
+          <p className="font-semibold text-sm truncate text-slate-900">{name}</p>
+          <p className="text-xs text-slate-500">
             {player.lines_completed} line{player.lines_completed !== 1 ? "s" : ""} · {player.moves} moves
           </p>
         </div>
@@ -73,8 +73,8 @@ export function OpponentCard({ player, flash, lastMove }: OpponentCardProps) {
                   className={cn(
                     "w-[17px] h-[17px] rounded-[3px] transition-all duration-200",
                     isMarked
-                      ? "bg-gradient-to-br from-primary/60 to-accent/60 shadow-sm shadow-primary/20"
-                      : "bg-white/50 border border-white/40",
+                      ? "bg-gradient-to-br from-primary/80 to-accent/80 shadow-sm shadow-primary/20"
+                      : "bg-white border border-slate-200 shadow-sm",
                     isLastMove && "ring-1 ring-primary animate-cell-cancel scale-110"
                   )}
                 />

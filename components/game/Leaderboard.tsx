@@ -18,31 +18,31 @@ export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
   });
 
   return (
-    <GlassCard className="p-4">
-      <h3 className="font-semibold text-sm mb-3">Leaderboard</h3>
+    <GlassCard className="p-4 shadow-sm">
+      <h3 className="font-semibold text-sm mb-3 text-slate-800">Leaderboard</h3>
       <div className="space-y-2">
         {ranked.map((player, i) => (
           <div
             key={player.id}
-            className={`flex items-center gap-3 p-2 rounded-xl ${
-              player.player_id === currentPlayerId ? "bg-primary/10" : "bg-white/30"
+            className={`flex items-center gap-3 p-2 rounded-xl border shadow-sm transition-colors ${
+              player.player_id === currentPlayerId ? "bg-blue-50 border-blue-100" : "bg-white border-slate-100"
             }`}
           >
-            <span className="text-xs font-bold text-text-muted w-4">{i + 1}</span>
+            <span className="text-xs font-bold text-slate-400 w-4">{i + 1}</span>
             <Avatar
               name={player.profile?.username ?? "P"}
               avatarUrl={player.profile?.avatar_url}
               size="sm"
             />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">
+              <p className="text-sm font-semibold truncate text-slate-800">
                 {player.profile?.username ?? "Player"}
                 {player.player_id === currentPlayerId && (
                   <span className="text-xs text-primary ml-1">(you)</span>
                 )}
               </p>
             </div>
-            <span className="text-xs font-semibold text-primary">
+            <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-1 rounded-md">
               {player.lines_completed}L
             </span>
           </div>

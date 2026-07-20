@@ -33,21 +33,21 @@ export function LiveMovesFeed({ moves, currentPlayerId }: LiveMovesFeedProps) {
   }, [moves.length]);
 
   return (
-    <GlassCard className="p-4">
+    <GlassCard className="p-4 shadow-sm">
       <div className="flex items-center gap-2 mb-3">
         <span className="relative flex h-2.5 w-2.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
         </span>
-        <h3 className="font-semibold text-sm">Live Moves</h3>
+        <h3 className="font-semibold text-sm text-slate-800">Live Moves</h3>
       </div>
 
       <div
         ref={scrollRef}
-        className="space-y-1.5 max-h-[180px] overflow-y-auto pr-1 scroll-smooth"
+        className="space-y-2 max-h-[180px] overflow-y-auto pr-1 scroll-smooth"
       >
         {moves.length === 0 && (
-          <p className="text-xs text-text-muted text-center py-3">
+          <p className="text-xs text-slate-500 text-center py-3 font-medium">
             No moves yet — waiting for action…
           </p>
         )}
@@ -60,11 +60,11 @@ export function LiveMovesFeed({ moves, currentPlayerId }: LiveMovesFeedProps) {
             <div
               key={move.id}
               className={cn(
-                "flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs transition-all duration-300",
+                "flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-all duration-300 shadow-sm",
                 isNew && "animate-slide-in",
                 isYou
-                  ? "bg-primary/8 border border-primary/15"
-                  : "bg-white/40 border border-white/30"
+                  ? "bg-blue-50 border border-blue-100"
+                  : "bg-white border border-slate-200"
               )}
             >
               <Avatar
@@ -73,19 +73,19 @@ export function LiveMovesFeed({ moves, currentPlayerId }: LiveMovesFeedProps) {
                 size="xs"
               />
               <div className="flex-1 min-w-0">
-                <span className={cn("font-semibold", isYou && "text-primary")}>
+                <span className={cn("font-semibold", isYou ? "text-blue-700" : "text-slate-700")}>
                   {isYou ? "You" : move.playerName}
                 </span>{" "}
-                <span className="text-text-muted">
+                <span className="text-slate-500">
                   {move.marked ? "cancelled" : "unmarked"}{" "}
                 </span>
                 {move.number !== undefined && (
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-primary/12 text-primary font-bold text-[10px]">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-md bg-slate-100 text-slate-700 font-bold text-[10px] ml-1">
                     {move.number}
                   </span>
                 )}
               </div>
-              <span className="text-[10px] text-text-muted tabular-nums whitespace-nowrap">
+              <span className="text-[10px] text-slate-400 font-medium tabular-nums whitespace-nowrap">
                 #{move.moves}
               </span>
             </div>

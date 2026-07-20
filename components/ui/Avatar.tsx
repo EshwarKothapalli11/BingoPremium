@@ -11,10 +11,10 @@ interface AvatarProps {
 
 export function Avatar({ name, avatarUrl, size = "md", className }: AvatarProps) {
   const sizes = {
-    xs: "w-5 h-5 text-[8px]",
-    sm: "w-8 h-8 text-xs",
-    md: "w-10 h-10 text-sm",
-    lg: "w-14 h-14 text-lg",
+    xs: "w-6 h-6 text-[10px]",
+    sm: "w-10 h-10 text-sm",
+    md: "w-12 h-12 text-base",
+    lg: "w-16 h-16 text-xl",
   };
 
   if (avatarUrl) {
@@ -22,7 +22,11 @@ export function Avatar({ name, avatarUrl, size = "md", className }: AvatarProps)
       <img
         src={avatarUrl}
         alt={name}
-        className={cn("rounded-full object-cover ring-2 ring-white/60", sizes[size], className)}
+        className={cn(
+          "rounded-full object-cover ring-2 ring-primary/20 shadow-sm", 
+          sizes[size], 
+          className
+        )}
       />
     );
   }
@@ -30,8 +34,8 @@ export function Avatar({ name, avatarUrl, size = "md", className }: AvatarProps)
   return (
     <div
       className={cn(
-        "rounded-full flex items-center justify-center font-semibold",
-        "bg-gradient-to-br from-primary to-accent text-white ring-2 ring-white/60",
+        "rounded-full flex items-center justify-center font-bold tracking-wider",
+        "bg-primary/10 text-primary border border-primary/20 shadow-sm",
         sizes[size],
         className
       )}

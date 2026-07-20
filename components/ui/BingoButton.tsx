@@ -15,11 +15,11 @@ export function BingoButton({
 }: BingoButtonProps) {
   const variants = {
     primary:
-      "bg-gradient-to-r from-primary to-accent text-white hover:opacity-90 shadow-lg shadow-primary/25",
+      "bg-gradient-to-r from-primary to-accent text-white hover:shadow-[0_8px_20px_rgba(59,130,246,0.3)] hover:-translate-y-[2px] shadow-lg shadow-primary/25",
     secondary:
-      "glass-card hover:bg-white/80 text-text-primary",
-    danger: "bg-danger text-white hover:opacity-90",
-    ghost: "bg-transparent hover:bg-white/40 text-text-muted",
+      "bg-white border border-primary/20 text-slate-800 hover:bg-slate-50 hover:border-primary/40 shadow-sm",
+    danger: "bg-danger text-white hover:opacity-90 shadow-sm",
+    ghost: "bg-transparent hover:bg-slate-100 text-slate-600",
   };
 
   const sizes = {
@@ -32,7 +32,7 @@ export function BingoButton({
     <button
       className={cn(
         "inline-flex items-center justify-center gap-2 transition-all duration-200",
-        "disabled:opacity-50 disabled:cursor-not-allowed",
+        "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none",
         "active:scale-[0.98]",
         variants[variant],
         sizes[size],

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
-import { BackgroundBlobs } from "@/components/ui/BackgroundBlobs";
+import { FuturisticBackground } from "@/components/ui/FuturisticBackground";
 
 const poppins = Poppins({
   subsets: ["latin"],
@@ -21,8 +21,8 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${poppins.variable} font-poppins antialiased relative min-h-screen`}>
-        <BackgroundBlobs />
+      <body className={`${poppins.variable} font-poppins antialiased relative min-h-screen text-slate-900 overflow-x-hidden`}>
+        <FuturisticBackground />
         <div className="relative z-10">{children}</div>
       </body>
     </html>
