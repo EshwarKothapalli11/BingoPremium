@@ -35,6 +35,7 @@ export function toRoom(id: string, data: DocumentData): Room {
     status: data.status ?? "waiting",
     max_players: data.max_players ?? 4,
     winner_id: data.winner_id ?? null,
+    current_turn_id: data.current_turn_id ?? null,
     started_at: data.started_at ?? null,
     created_at: data.created_at ?? new Date().toISOString(),
   };

@@ -1,92 +1,29 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useRoom } from "@/hooks/useRoom";
-import { useRealtime } from "@/hooks/useRealtime";
-import { useGame } from "@/hooks/useGame";
+import { RoomProvider, useRoomContext } from "@/context/RoomContext";
+import { RoomSkeleton } from "@/components/ui/RoomSkeleton";
+import { Navbar } from "@/components/ui/Navbar";
+import { GlassCard } from "@/components/ui/GlassCard";
 import { LobbyView } from "@/components/lobby/LobbyView";
 import { MatrixEntry } from "@/components/game/MatrixEntry";
 import { GameView } from "@/components/game/GameView";
-import { Navbar } from "@/components/ui/Navbar";
-import { GlassCard } from "@/components/ui/GlassCard";
-import {
-  getRoomPlayers,
-  updateRoom,
-  submitBoardTransaction,
-} from "@/lib/firebase/firestore";
-import type { Profile, Room, RoomPlayer } from "@/types";
+import type { Profile } from "@/types";
 
 interface RoomPageClientProps {
   code: string;
   profile: Profile;
 }
 
-export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
+function RoomContent({ profile }: { profile: Profile }) {
   const router = useRouter();
-  const {
-    room,
-    players,
-    loading,
-    error,
-    joinRoom,
-    setReady,
-    startGame,
-    setRoom,
-    setPlayers,
-    fetchRoom,
-  } = useRoom(code);
-
-  useGame(room?.id ?? null, profile.id, null);
-  const [joined, setJoined] = useState(false);
-
-  useEffect(() => {
-    async function autoJoin() {
-      if (!room || joined) return;
-      const result = await joinRoom(profile.id);
-      if (result.error && result.error !== "Room is full") {
-        console.error(result.error);
-      }
-      setJoined(true);
-    }
-    autoJoin();
-  }, [room, profile.id, joinRoom, joined]);
-
-  useRealtime(
-    room?.id && (room.status === "waiting" || room.status === "matrix") ? room.id : null,
-    {
-      onRoomChange: (updatedRoom) => setRoom(updatedRoom),
-      onPlayerChange: async () => {
-        await fetchRoom();
-      },
-    },
-    "room-lobby"
-  );
-
-  const currentPlayer = players.find((p) => p.player_id === profile.id);
-
-  const handleSubmitBoard = useCallback(
-    async (board: number[][]) => {
-      if (!profile.id || !room) return;
-
-      const allPlayerIds = players.map((p) => p.player_id);
-
-      await submitBoardTransaction(
-        room.id,
-        profile.id,
-        board,
-        allPlayerIds
-      );
-    },
-    [profile.id, room, players]
-  );
+  const { room, players, loading, error, setReady, startGame, submitBoard } = useRoomContext();
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <GlassCard className="p-8 text-center">
-          <div className="animate-pulse text-primary font-semibold">Loading room…</div>
-        </GlassCard>
+      <div className="min-h-screen">
+        <Navbar profile={profile} />
+        <RoomSkeleton />
       </div>
     );
   }
@@ -107,6 +44,7 @@ export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
     );
   }
 
+  const currentPlayer = players.find((p) => p.player_id === profile.id);
   const submittedCount = players.filter((p) => p.has_submitted_board).length;
 
   return (
@@ -114,7 +52,7 @@ export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
       <div className="max-w-7xl mx-auto">
         <Navbar profile={profile} />
 
-        {room.status === "waiting" && (
+        {!currentPlayer?.has_submitted_board && !currentPlayer?.board && room.status === "waiting" && (
           <LobbyView
             room={room}
             players={players}
@@ -124,34 +62,26 @@ export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
           />
         )}
 
-        {room.status === "matrix" && (
+        {!currentPlayer?.has_submitted_board && !currentPlayer?.board && room.status === "matrix" && (
           <MatrixEntry
-            onSubmit={handleSubmitBoard}
+            onSubmit={(board) => submitBoard(profile.id, board)}
             submitted={currentPlayer?.has_submitted_board ?? false}
             waitingCount={{ submitted: submittedCount, total: players.length }}
           />
         )}
 
-        {room.status === "playing" && currentPlayer?.board && (
-          <GameView
-            room={room}
-            players={players}
-            currentUser={profile}
-            onPlayersUpdate={setPlayers}
-            onRoomUpdate={setRoom}
-          />
-        )}
-
-        {room.status === "finished" && (
-          <GameView
-            room={room}
-            players={players}
-            currentUser={profile}
-            onPlayersUpdate={setPlayers}
-            onRoomUpdate={setRoom}
-          />
+        {(currentPlayer?.has_submitted_board || currentPlayer?.board) && (
+          <GameView currentUser={profile} />
         )}
       </div>
     </div>
+  );
+}
+
+export default function RoomPageClient({ code, profile }: RoomPageClientProps) {
+  return (
+    <RoomProvider code={code} profile={profile}>
+      <RoomContent profile={profile} />
+    </RoomProvider>
   );
 }

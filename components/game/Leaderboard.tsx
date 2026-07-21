@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Avatar } from "@/components/ui/Avatar";
 import type { RoomPlayer } from "@/types";
@@ -9,7 +10,7 @@ interface LeaderboardProps {
   currentPlayerId: string;
 }
 
-export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
+export const Leaderboard = memo(function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
   const ranked = [...players].sort((a, b) => {
     if (b.lines_completed !== a.lines_completed) {
       return b.lines_completed - a.lines_completed;
@@ -50,4 +51,4 @@ export function Leaderboard({ players, currentPlayerId }: LeaderboardProps) {
       </div>
     </GlassCard>
   );
-}
+});

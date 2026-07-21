@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { BingoButton } from "@/components/ui/BingoButton";
 import type { Message, Profile } from "@/types";
@@ -11,7 +11,7 @@ interface GameChatProps {
   currentPlayerId: string;
 }
 
-export function GameChat({ messages, onSend, currentPlayerId }: GameChatProps) {
+export const GameChat = memo(function GameChat({ messages, onSend, currentPlayerId }: GameChatProps) {
   const [input, setInput] = useState("");
 
   const handleSend = () => {
@@ -64,4 +64,4 @@ export function GameChat({ messages, onSend, currentPlayerId }: GameChatProps) {
       </div>
     </GlassCard>
   );
-}
+});

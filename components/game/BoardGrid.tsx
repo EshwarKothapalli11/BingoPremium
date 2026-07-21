@@ -1,8 +1,9 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+import { memo } from "react";
 import type { MarkedGrid } from "@/types";
 import { getWinningCells } from "@/lib/bingo-logic";
+import { BingoCell } from "./BingoCell";
 
 interface BoardGridProps {
   board: number[][];
@@ -14,7 +15,7 @@ interface BoardGridProps {
   showHeaders?: boolean;
 }
 
-export function BoardGrid({
+export const BoardGrid = memo(function BoardGrid({
   board,
   marked,
   onCellClick,
@@ -45,32 +46,26 @@ export function BoardGrid({
         {board.map((row, r) =>
           row.map((cell, c) => {
             const key = `${r}-${c}`;
-            const isMarked = marked[r]?.[c];
+            const isMarked = marked[r]?.[c] ?? false;
             const isWinner = winningCells.has(key);
             const isAnimating = animatingCell === key;
 
             return (
-              <button
+              <BingoCell
                 key={key}
-                type="button"
-                disabled={readOnly}
-                onClick={() => onCellClick?.(r, c)}
-                className={cn(
-                  "w-20 h-20 glass-card flex items-center justify-center",
-                  "text-lg font-semibold transition-all duration-100",
-                  !readOnly && "hover:-translate-y-0.5 hover:border-primary/50 cursor-pointer",
-                  isMarked && "cell-cancelled",
-                  isWinner && "cell-winner",
-                  isAnimating && "animate-cell-cancel",
-                  readOnly && "cursor-default"
-                )}
-              >
-                {cell || "—"}
-              </button>
+                row={r}
+                col={c}
+                cell={cell}
+                isMarked={isMarked}
+                isWinner={isWinner}
+                isAnimating={isAnimating}
+                readOnly={readOnly}
+                onCellClick={onCellClick}
+              />
             );
           })
         )}
       </div>
     </div>
   );
-}
+});

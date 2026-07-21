@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn, getInitials } from "@/lib/utils";
 
 interface AvatarProps {
@@ -9,7 +10,7 @@ interface AvatarProps {
   className?: string;
 }
 
-export function Avatar({ name, avatarUrl, size = "md", className }: AvatarProps) {
+export const Avatar = memo(function Avatar({ name, avatarUrl, size = "md", className }: AvatarProps) {
   const sizes = {
     xs: "w-6 h-6 text-[10px]",
     sm: "w-10 h-10 text-sm",
@@ -43,4 +44,4 @@ export function Avatar({ name, avatarUrl, size = "md", className }: AvatarProps)
       {getInitials(name)}
     </div>
   );
-}
+});

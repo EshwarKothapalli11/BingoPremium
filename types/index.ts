@@ -20,6 +20,7 @@ export interface Room {
   status: RoomStatus;
   max_players: number;
   winner_id: string | null;
+  current_turn_id: string | null;
   started_at: string | null;
   created_at: string;
 }
@@ -58,15 +59,38 @@ export interface Message {
   profile?: Profile;
 }
 
-export interface HistoryEntry {
-  id: string;
-  room_id: string;
-  winner_id: string;
+export interface PlayerHistoryStats {
+  uid: string;
+  name: string;
+  isHost: boolean;
+  completedLines: number;
+  bingoLetters: number; // Storing as number matching the DB's bingo_letters
   moves: number;
-  duration: string;
-  players_count: number;
-  created_at: string;
-  winner?: Profile;
+  board: number[];
+  marked: boolean[];
+}
+
+export interface PlayerHistoryMeta {
+  uid: string;
+  name: string;
+  isHost: boolean;
+  joinedAt: string;
+}
+
+export interface GameHistory {
+  id?: string;
+  roomId: string;
+  roomCode: string;
+  winner: PlayerHistoryStats;
+  loser: PlayerHistoryStats;
+  players: PlayerHistoryMeta[];
+  gameStats: {
+    totalMoves: number;
+    durationSeconds: number;
+    startedAt: string;
+    endedAt: any; // FieldValue or Timestamp
+  };
+  createdAt: any; // FieldValue or Timestamp
 }
 
 export type BoardGrid = number[][];

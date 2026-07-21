@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, memo } from "react";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/ui/Avatar";
 import { BingoProgress } from "@/components/game/BingoProgress";
@@ -11,9 +11,10 @@ interface OpponentCardProps {
   player: RoomPlayer;
   flash?: boolean;
   lastMove?: { row: number; col: number; number?: number } | null;
+  isActiveTurn?: boolean;
 }
 
-export function OpponentCard({ player, flash, lastMove }: OpponentCardProps) {
+export const OpponentCard = memo(function OpponentCard({ player, flash, lastMove, isActiveTurn }: OpponentCardProps) {
   const name = player.profile?.username ?? "Player";
   const prevMoves = useRef(player.moves);
   const [showMoveToast, setShowMoveToast] = useState(false);
@@ -35,10 +36,18 @@ export function OpponentCard({ player, flash, lastMove }: OpponentCardProps) {
   return (
     <GlassCard
       className={cn(
-        "p-4 transition-all duration-150 relative overflow-hidden shadow-sm",
-        flash && "animate-flash"
+        "p-4 transition-all duration-300 relative overflow-hidden shadow-sm",
+        flash && "animate-flash",
+        isActiveTurn ? "border-amber-400 shadow-md shadow-amber-400/20 ring-1 ring-amber-400" : "border-slate-200"
       )}
     >
+      {/* Active Turn Indicator for Opponent */}
+      {isActiveTurn && (
+        <div className="absolute top-2 right-2 flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-50 border border-amber-200">
+          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Turn</span>
+        </div>
+      )}
       {/* Move toast overlay */}
       {showMoveToast && lastMove && (
         <div className="absolute top-2 right-2 z-10 animate-slide-in">
@@ -87,4 +96,4 @@ export function OpponentCard({ player, flash, lastMove }: OpponentCardProps) {
       <BingoProgress lettersEarned={player.bingo_letters} size="sm" />
     </GlassCard>
   );
-}
+});

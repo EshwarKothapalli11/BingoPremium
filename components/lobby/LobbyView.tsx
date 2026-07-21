@@ -23,6 +23,7 @@ export function LobbyView({
   onReady,
   onStart,
 }: LobbyViewProps) {
+  console.log("Lobby rendered", players);
   const [copied, setCopied] = useState(false);
   const isHost = room.host_id === currentUserId;
   const currentPlayer = players.find((p) => p.player_id === currentUserId);

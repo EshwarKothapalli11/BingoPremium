@@ -1,60 +1,80 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { BoardGrid } from "@/components/game/BoardGrid";
 import { BingoProgress } from "@/components/game/BingoProgress";
 import { OpponentCard } from "@/components/game/OpponentCard";
-import { GameChat } from "@/components/game/GameChat";
-import { Leaderboard } from "@/components/game/Leaderboard";
-import { WinModal } from "@/components/game/WinModal";
-import { LiveMovesFeed, type LiveMove } from "@/components/game/LiveMovesFeed";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { useGame, useGameChat } from "@/hooks/useGame";
-import { useRealtime } from "@/hooks/useRealtime";
-import {
-  getMessages,
-  getGameEvents,
-  getRoomPlayers,
-  fetchProfile,
-} from "@/lib/firebase/firestore";
+import { useRoomContext } from "@/context/RoomContext";
 import { formatDuration } from "@/lib/utils";
-import type { GameEvent, Message, Profile, Room, RoomPlayer } from "@/types";
+import type { Profile } from "@/types";
+
+// Lazy load non-critical components
+const GameChat = dynamic(() => import("@/components/game/GameChat").then(mod => mod.GameChat), { ssr: false });
+const Leaderboard = dynamic(() => import("@/components/game/Leaderboard").then(mod => mod.Leaderboard), { ssr: false });
+const WinModal = dynamic(() => import("@/components/game/WinModal").then(mod => mod.WinModal), { ssr: false });
+const LiveMovesFeed = dynamic(() => import("@/components/game/LiveMovesFeed").then(mod => mod.LiveMovesFeed), { ssr: false });
 
 interface GameViewProps {
-  room: Room;
-  players: RoomPlayer[];
   currentUser: Profile;
-  onPlayersUpdate: (players: RoomPlayer[]) => void;
-  onRoomUpdate: (room: Room) => void;
 }
 
-export function GameView({
-  room,
-  players,
-  currentUser,
-  onPlayersUpdate,
-  onRoomUpdate,
-}: GameViewProps) {
+export function GameView({ currentUser }: GameViewProps) {
+  const { room, players, messages, liveMoves } = useRoomContext();
+  
+  if (!room) return null;
+
   const currentPlayer = players.find((p) => p.player_id === currentUser.id);
   const opponents = players.filter((p) => p.player_id !== currentUser.id);
+
+  const allPlayerIds = useMemo(() => players.map((p) => p.player_id), [players]);
 
   const {
     marked,
     setMarked,
     animatingCell,
     cancelCell,
-  } = useGame(room.id, currentUser.id, currentPlayer?.id ?? null);
+    isSubmitting,
+  } = useGame(room.id, currentUser.id, currentPlayer?.id ?? null, allPlayerIds);
 
   const { sendMessage } = useGameChat(room.id, currentUser.id);
-  const [messages, setMessages] = useState<(Message & { profile?: Profile })[]>([]);
-  const [flashPlayerId, setFlashPlayerId] = useState<string | null>(null);
   const [pulseLetter, setPulseLetter] = useState<number | null>(null);
   const [, setTick] = useState(0);
-  const [liveMoves, setLiveMoves] = useState<LiveMove[]>([]);
-  const [opponentLastMoves, setOpponentLastMoves] = useState<
-    Record<string, { row: number; col: number; number?: number }>
-  >({});
 
+  // We can track last move directly from liveMoves if needed, or just let live moves handle feed.
+  // We'll keep a simple tracking for flash effect based on opponent moves
+  const [opponentLastMoves, setOpponentLastMoves] = useState<Record<string, { row: number; col: number; number?: number }>>({});
+  const [flashPlayerId, setFlashPlayerId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (liveMoves.length > 0) {
+      const lastMove = liveMoves[liveMoves.length - 1];
+      if (lastMove.playerId !== currentUser.id) {
+        setOpponentLastMoves(prev => ({
+          ...prev,
+          [lastMove.playerId]: { row: lastMove.row, col: lastMove.col, number: lastMove.number }
+        }));
+        setFlashPlayerId(lastMove.playerId);
+        setTimeout(() => setFlashPlayerId(null), 150);
+      }
+    }
+  }, [liveMoves, currentUser.id]);
+
+  const isMyTurn = room.current_turn_id === currentUser.id;
+
+  // --- LIFECYCLE LOGGING ---
+  useEffect(() => {
+    console.log(`[LIFECYCLE] Realtime listener update received.`);
+    console.log(`[LIFECYCLE] 1. user.uid:`, currentUser.id);
+    console.log(`[LIFECYCLE] 2 & 7. room.current_turn_id:`, room.current_turn_id);
+    console.log(`[LIFECYCLE] 3 & 9. isMyTurn evaluates to:`, isMyTurn);
+    console.log(`[LIFECYCLE] room.status:`, room.status);
+    console.log(`[LIFECYCLE] isSubmittingMove evaluates to:`, isSubmitting);
+  }, [room.current_turn_id, room.status, isMyTurn, currentUser.id, isSubmitting]);
+
+  // Sync marked state from Firestore realtime listener (single source of truth)
   useEffect(() => {
     if (currentPlayer?.marked) {
       setMarked(currentPlayer.marked as boolean[][]);
@@ -65,134 +85,6 @@ export function GameView({
     const interval = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(interval);
   }, []);
-
-  // Load existing messages
-  useEffect(() => {
-    async function loadMessages() {
-      const msgs = await getMessages(room.id);
-      // Attach profiles
-      const msgsWithProfiles: (Message & { profile?: Profile })[] = [];
-      for (const msg of msgs) {
-        const profile = await fetchProfile(msg.player_id);
-        msgsWithProfiles.push({
-          ...msg,
-          profile: profile ?? undefined,
-        });
-      }
-      setMessages(msgsWithProfiles);
-    }
-    loadMessages();
-  }, [room.id]);
-
-  // Load existing game events on mount to populate the live feed
-  useEffect(() => {
-    async function loadEvents() {
-      const events = await getGameEvents(room.id, "cell_cancelled", 50);
-      if (events.length > 0) {
-        const existingMoves: LiveMove[] = events.map((ev) => {
-          const evPlayer = players.find((p) => p.player_id === ev.player_id);
-          const payload = ev.payload as Record<string, unknown>;
-          const playerBoard = evPlayer?.board as number[][] | null;
-          const row = (payload.row as number) ?? 0;
-          const col = (payload.col as number) ?? 0;
-          let cellNumber: number | undefined;
-          if (playerBoard && playerBoard[row] && playerBoard[row][col]) {
-            cellNumber = playerBoard[row][col];
-          }
-
-          return {
-            id: ev.id,
-            playerName: evPlayer?.profile?.username ?? "Player",
-            playerId: ev.player_id,
-            avatarUrl: evPlayer?.profile?.avatar_url,
-            number: cellNumber,
-            row,
-            col,
-            marked: (payload.marked as boolean) ?? true,
-            moves: (payload.moves as number) ?? 0,
-            timestamp: new Date(ev.created_at).getTime(),
-          };
-        });
-        setLiveMoves(existingMoves);
-      }
-    }
-    loadEvents();
-  }, [room.id, players]);
-
-  const refreshPlayers = useCallback(async () => {
-    const data = await getRoomPlayers(room.id);
-    if (data) {
-      onPlayersUpdate(data);
-    }
-  }, [room.id, onPlayersUpdate]);
-
-  const handleGameEvent = useCallback(
-    (event: GameEvent) => {
-      if (event.event_type === "cell_cancelled") {
-        const payload = event.payload as Record<string, unknown>;
-        const row = (payload.row as number) ?? 0;
-        const col = (payload.col as number) ?? 0;
-        const isMarked = (payload.marked as boolean) ?? true;
-        const moves = (payload.moves as number) ?? 0;
-
-        // Find the player who made this move
-        const movePlayer = players.find((p) => p.player_id === event.player_id);
-        const playerBoard = movePlayer?.board as number[][] | null;
-        let cellNumber: number | undefined;
-        if (playerBoard && playerBoard[row] && playerBoard[row][col]) {
-          cellNumber = playerBoard[row][col];
-        }
-
-        const liveMove: LiveMove = {
-          id: event.id,
-          playerName: movePlayer?.profile?.username ?? "Player",
-          playerId: event.player_id,
-          avatarUrl: movePlayer?.profile?.avatar_url,
-          number: cellNumber,
-          row,
-          col,
-          marked: isMarked,
-          moves,
-          timestamp: Date.now(),
-        };
-
-        setLiveMoves((prev) => [...prev.slice(-49), liveMove]);
-
-        // Track last move per opponent for the OpponentCard toast
-        if (event.player_id !== currentUser.id) {
-          setOpponentLastMoves((prev) => ({
-            ...prev,
-            [event.player_id]: { row, col, number: cellNumber },
-          }));
-        }
-      }
-
-      refreshPlayers();
-    },
-    [players, currentUser.id, refreshPlayers]
-  );
-
-  useRealtime(room.id, {
-    onPlayerChange: async (player, event) => {
-      await refreshPlayers();
-      if (event === "UPDATE" && player.player_id !== currentUser.id) {
-        setFlashPlayerId(player.player_id);
-        setTimeout(() => setFlashPlayerId(null), 150);
-        if (player.bingo_letters > 0) {
-          setPulseLetter(player.bingo_letters - 1);
-          setTimeout(() => setPulseLetter(null), 400);
-        }
-      }
-    },
-    onRoomChange: (updatedRoom) => {
-      onRoomUpdate(updatedRoom);
-    },
-    onMessage: async (msg) => {
-      const profile = await fetchProfile(msg.player_id);
-      setMessages((prev) => [...prev, { ...msg, profile: profile ?? undefined }]);
-    },
-    onGameEvent: handleGameEvent,
-  }, "room-game");
 
   const winner = useMemo(() => {
     if (!room.winner_id) return null;
@@ -231,6 +123,7 @@ export function GameView({
             player={opp}
             flash={flashPlayerId === opp.player_id}
             lastMove={opponentLastMoves[opp.player_id] ?? null}
+            isActiveTurn={room.current_turn_id === opp.player_id}
           />
         ))}
         {opponents.length === 0 && (
@@ -242,11 +135,34 @@ export function GameView({
 
       {/* Center — Your Board */}
       <div className="order-1 lg:order-2 flex flex-col items-center">
-        <div className="mb-6">
+        <div className="mb-4">
           <BingoProgress
             lettersEarned={currentPlayer?.bingo_letters ?? 0}
             pulseLetter={pulseLetter}
           />
+        </div>
+        
+        {/* Turn Indicator */}
+        <div className="mb-4 h-9">
+          {!room.current_turn_id ? (
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-50 text-slate-700 border border-slate-200 font-bold text-sm shadow-sm">
+              <span className="w-3 h-3 rounded-full bg-slate-400 animate-pulse"></span>
+              Initializing turn...
+            </div>
+          ) : isMyTurn ? (
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-sm shadow-sm animate-pulse">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              Your Turn
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-bold text-sm shadow-sm">
+              <span className="w-3 h-3 rounded-full bg-amber-400"></span>
+              {opponents.length === 0 || room.status !== "playing" ? "Waiting for another player..." : "Waiting for opponent..."}
+            </div>
+          )}
         </div>
 
         <BoardGrid
@@ -256,6 +172,7 @@ export function GameView({
           animatingCell={animatingCell}
           completedLines={completedLines}
           showHeaders={false}
+          readOnly={!isMyTurn || isSubmitting}
         />
 
         <p className="mt-4 text-sm text-slate-500 font-medium bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-200">

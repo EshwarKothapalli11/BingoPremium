@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, memo } from "react";
 import { cn } from "@/lib/utils";
 import { GlassCard } from "@/components/ui/GlassCard";
 import { Avatar } from "@/components/ui/Avatar";
@@ -23,7 +23,7 @@ interface LiveMovesFeedProps {
   currentPlayerId: string;
 }
 
-export function LiveMovesFeed({ moves, currentPlayerId }: LiveMovesFeedProps) {
+export const LiveMovesFeed = memo(function LiveMovesFeed({ moves, currentPlayerId }: LiveMovesFeedProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,4 +94,4 @@ export function LiveMovesFeed({ moves, currentPlayerId }: LiveMovesFeedProps) {
       </div>
     </GlassCard>
   );
-}
+});

@@ -28,9 +28,6 @@ export function subscribeToRoom(
 ): Unsubscribe {
   const unsubscribers: Unsubscribe[] = [];
   let isFirstRoomSnapshot = true;
-  let isFirstPlayersSnapshot = true;
-  let isFirstEventsSnapshot = true;
-  let isFirstMessagesSnapshot = true;
 
   // 1. Room document changes
   if (handlers.onRoomChange) {
@@ -56,13 +53,9 @@ export function subscribeToRoom(
   // 2. Players subcollection changes
   if (handlers.onPlayerChange) {
     const playersRef = collection(db, "rooms", roomId, "players");
-    const q = query(playersRef, orderBy("joined_at", "asc"));
+    const q = query(playersRef);
     const unsub = onSnapshot(q, (snap) => {
-      if (isFirstPlayersSnapshot) {
-        isFirstPlayersSnapshot = false;
-        return; // Skip initial load
-      }
-
+      console.log("Players snapshot updated");
       for (const change of snap.docChanges()) {
         const player = toRoomPlayer(change.doc.id, change.doc.data());
         switch (change.type) {
@@ -84,13 +77,8 @@ export function subscribeToRoom(
   // 3. Game events subcollection (new inserts only)
   if (handlers.onGameEvent) {
     const eventsRef = collection(db, "rooms", roomId, "game_events");
-    const q = query(eventsRef, orderBy("created_at", "asc"));
+    const q = query(eventsRef);
     const unsub = onSnapshot(q, (snap) => {
-      if (isFirstEventsSnapshot) {
-        isFirstEventsSnapshot = false;
-        return; // Skip initial load
-      }
-
       for (const change of snap.docChanges()) {
         if (change.type === "added") {
           handlers.onGameEvent!(toGameEvent(change.doc.id, change.doc.data()));
@@ -103,13 +91,8 @@ export function subscribeToRoom(
   // 4. Messages subcollection (new inserts only)
   if (handlers.onMessage) {
     const messagesRef = collection(db, "rooms", roomId, "messages");
-    const q = query(messagesRef, orderBy("created_at", "asc"));
+    const q = query(messagesRef);
     const unsub = onSnapshot(q, (snap) => {
-      if (isFirstMessagesSnapshot) {
-        isFirstMessagesSnapshot = false;
-        return; // Skip initial load
-      }
-
       for (const change of snap.docChanges()) {
         if (change.type === "added") {
           handlers.onMessage!(toMessage(change.doc.id, change.doc.data()));

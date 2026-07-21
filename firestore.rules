@@ -18,23 +18,19 @@ service cloud.firestore {
       allow read: if request.auth != null;
       // Any authenticated user can create a room
       allow create: if request.auth != null;
-      // Host can update anything.
-      // Other players can ONLY update specific fields for strict game state transitions.
       allow update: if request.auth != null
         && (
           resource.data.host_id == request.auth.uid
           || (
-            // Transition from matrix to playing (when last player submits board)
-            resource.data.status == 'matrix'
-            && request.resource.data.status == 'playing'
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-          )
-          || (
-            // Transition from playing to finished (when a player wins)
             resource.data.status == 'playing'
-            && request.resource.data.status == 'finished'
-            && request.resource.data.winner_id == request.auth.uid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'winner_id'])
+            && request.resource.data.status == 'playing'
+            && resource.data.current_turn_id == request.auth.uid
+            && request.resource.data.host_id == resource.data.host_id
+            && request.resource.data.winner_id == resource.data.winner_id
+            && request.resource.data.max_players == resource.data.max_players
+            && request.resource.data.code == resource.data.code
+            && request.resource.data.name == resource.data.name
+            && request.resource.data.created_at == resource.data.created_at
           )
         );
 
@@ -44,7 +40,20 @@ service cloud.firestore {
         allow read: if request.auth != null;
         // Users can only create/update their own player document
         allow create: if request.auth != null && request.auth.uid == playerId;
-        allow update: if request.auth != null && request.auth.uid == playerId;
+        // Players can update their own player document, or other players' documents 
+        // as long as they don't change immutable fields (for synchronized moves).
+        allow update: if request.auth != null
+          && (
+            request.auth.uid == playerId
+            || (
+              request.resource.data.player_id == resource.data.player_id
+              && request.resource.data.room_id == resource.data.room_id
+              && request.resource.data.board == resource.data.board
+              && request.resource.data.joined_at == resource.data.joined_at
+              && request.resource.data.is_ready == resource.data.is_ready
+              && request.resource.data.has_submitted_board == resource.data.has_submitted_board
+            )
+          );
         // Users can only delete their own player document (leave room)
         allow delete: if request.auth != null && request.auth.uid == playerId;
       }
@@ -53,9 +62,15 @@ service cloud.firestore {
       match /game_events/{eventId} {
         // Any authenticated user can read game events
         allow read: if request.auth != null;
-        // Users can only create events for themselves
+        // Only authenticated players who exist in this room can create events.
+        // - room_id must match the enclosing room
+        // - event_type must be a known game event type
+        // - player_id, event_type, room_id, payload, created_at must all exist
         allow create: if request.auth != null
-          && request.resource.data.player_id == request.auth.uid;
+          && exists(/databases/$(database)/documents/rooms/$(roomId)/players/$(request.auth.uid))
+          && request.resource.data.room_id == roomId
+          && request.resource.data.event_type in ['cell_cancelled', 'bingo_letter', 'game_won']
+          && request.resource.data.keys().hasAll(['room_id', 'player_id', 'event_type', 'payload', 'created_at']);
       }
 
       // ─── Messages subcollection ─────────────────────────────
@@ -68,12 +83,15 @@ service cloud.firestore {
       }
     }
 
-    // ─── History ─────────────────────────────────────────────
-    match /history/{historyId} {
-      // Anyone can read history (global leaderboard)
+    // ─── Game History ────────────────────────────────────────────
+    match /game_history/{historyId} {
       allow read: if request.auth != null;
-      // Any authenticated user can write history entries
-      allow create: if request.auth != null;
+      
+      // Enforce atomic creation: Only allow if the associated room is marked "finished"
+      allow create: if request.auth != null
+        && getAfter(/databases/$(database)/documents/rooms/$(request.resource.data.roomId)).data.status == 'finished';
+        
+      allow update, delete: if false; // Immutable
     }
   }
 }

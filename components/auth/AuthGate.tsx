@@ -9,19 +9,32 @@ import { LoginScreen } from "@/components/auth/LoginScreen";
 import type { Profile } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
 
+// Module-level session cache — survives re-mounts and navigations
+let cachedProfile: Profile | null = null;
+
 interface AuthGateProps {
   children: (profile: Profile) => React.ReactNode;
 }
 
 export function AuthGate({ children }: AuthGateProps) {
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(cachedProfile);
   const [error, setError] = useState<string | null>(null);
   const [retryKey, setRetryKey] = useState(0);
   const [showLogin, setShowLogin] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedProfile);
 
   useEffect(() => {
+    // If we already have a cached profile, skip everything
+    if (cachedProfile) {
+      setProfile(cachedProfile);
+      console.log("1. Auth completed");
+      console.log("2. User loaded (cached)");
+      setLoading(false);
+      return;
+    }
+
     let cancelled = false;
+    console.time("[perf] AuthGate: total auth");
 
     const storedName = localStorage.getItem("playerName");
     if (!storedName) {
@@ -29,6 +42,7 @@ export function AuthGate({ children }: AuthGateProps) {
         setShowLogin(true);
         setLoading(false);
       }
+      console.timeEnd("[perf] AuthGate: total auth");
       return;
     }
 
@@ -37,15 +51,20 @@ export function AuthGate({ children }: AuthGateProps) {
       .then((session) => getProfile(session.id))
       .then((p) => {
         if (!cancelled) {
-          setProfile(p);
+          cachedProfile = p as Profile;
+          setProfile(cachedProfile);
+          console.log("1. Auth completed");
+          console.log("2. User loaded");
           setLoading(false);
         }
+        console.timeEnd("[perf] AuthGate: total auth");
       })
       .catch((err) => {
         if (!cancelled) {
           setError(err.message ?? "Could not start session");
           setLoading(false);
         }
+        console.timeEnd("[perf] AuthGate: total auth");
       });
 
     return () => {
@@ -55,6 +74,7 @@ export function AuthGate({ children }: AuthGateProps) {
 
   const handleLogin = async (name: string) => {
     localStorage.setItem("playerName", name);
+    cachedProfile = null; // Force re-fetch on login
     setShowLogin(false);
     setRetryKey((k) => k + 1);
   };

@@ -8,12 +8,13 @@ import { GlassCard } from "@/components/ui/GlassCard";
 import { BingoButton } from "@/components/ui/BingoButton";
 
 interface MatrixEntryProps {
-  onSubmit: (board: number[][]) => void;
+  onSubmit: (board: number[][]) => Promise<void>;
   submitted: boolean;
   waitingCount: { submitted: number; total: number };
 }
 
 export function MatrixEntry({ onSubmit, submitted, waitingCount }: MatrixEntryProps) {
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [board, setBoard] = useState<number[][]>(createEmptyBoardGrid());
   const [focused, setFocused] = useState<[number, number]>([0, 0]);
   const inputRefs = useRef<(HTMLInputElement | null)[][]>(
@@ -168,8 +169,21 @@ export function MatrixEntry({ onSubmit, submitted, waitingCount }: MatrixEntryPr
 
       <BingoButton
         className="w-full"
-        disabled={!validation.valid}
-        onClick={() => onSubmit(board)}
+        disabled={!validation.valid || isSubmitting}
+        onClick={async () => {
+          console.log("Guest clicked Submit");
+          if (validation.valid) {
+            console.log("Board validation passed");
+            try {
+              setIsSubmitting(true);
+              await onSubmit(board);
+            } catch (err: any) {
+              alert(`Error: ${err.message}`);
+            } finally {
+              setIsSubmitting(false);
+            }
+          }
+        }}
       >
         Submit Board
       </BingoButton>

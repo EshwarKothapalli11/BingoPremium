@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { BINGO_LETTERS } from "@/types";
 
@@ -9,7 +10,11 @@ interface BingoProgressProps {
   pulseLetter?: number | null;
 }
 
-export function BingoProgress({ lettersEarned, size = "md", pulseLetter }: BingoProgressProps) {
+export const BingoProgress = memo(function BingoProgress({
+  lettersEarned,
+  size = "md",
+  pulseLetter = null,
+}: BingoProgressProps) {
   const badgeSize = size === "sm" ? "w-7 h-7 text-xs" : "w-10 h-10 text-sm";
 
   return (
@@ -36,4 +41,4 @@ export function BingoProgress({ lettersEarned, size = "md", pulseLetter }: Bingo
       })}
     </div>
   );
-}
+});

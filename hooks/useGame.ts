@@ -1,151 +1,81 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { detectBingoState, toggleCell } from "@/lib/bingo-logic";
 import { createEmptyMarkedGrid } from "@/lib/utils";
 import {
   getRoomPlayerDoc,
-  updateRoomPlayer,
-  insertGameEvent,
-  updateRoom,
-  fetchRoom as firestoreFetchRoom,
-  getRoomPlayerCount,
-  insertHistory,
-  fetchProfile,
-  updateProfile,
-  getRoomPlayers,
   insertMessage,
+  submitMoveTransaction,
 } from "@/lib/firebase/firestore";
-import type { MarkedGrid, RoomPlayer } from "@/types";
+import type { MarkedGrid } from "@/types";
 
 export function useGame(
   roomId: string | null,
   playerId: string | null,
-  roomPlayerId: string | null
+  roomPlayerId: string | null,
+  allPlayerIds: string[] = []
 ) {
   const [marked, setMarked] = useState<MarkedGrid>(createEmptyMarkedGrid());
   const [animatingCell, setAnimatingCell] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cancelCell = useCallback(
     async (row: number, col: number) => {
-      if (!roomId || !playerId) return;
+      if (!roomId || !playerId || isSubmitting) return;
 
-      // In Firestore, room_player doc ID = playerId (not a separate UUID)
       const effectivePlayerId = roomPlayerId || playerId;
 
-      const nextMarked = toggleCell(marked, row, col);
-      const prevMarked = marked[row][col];
-      const newMarked = !prevMarked;
+      // Guard: already marked locally
+      if (marked[row][col]) return;
 
-      setMarked(nextMarked);
-      setAnimatingCell(`${row}-${col}`);
-      setTimeout(() => setAnimatingCell(null), 100);
+      setIsSubmitting(true);
+      try {
+        // Resolve the number from the player's board
+        const current = await getRoomPlayerDoc(roomId, effectivePlayerId);
+        const selectedNumber = current?.board?.[row]?.[col];
 
-      const bingoState = detectBingoState(nextMarked);
-
-      const current = await getRoomPlayerDoc(roomId, effectivePlayerId);
-      const newMoves = (current?.moves ?? 0) + 1;
-
-      await updateRoomPlayer(roomId, effectivePlayerId, {
-        marked: nextMarked,
-        moves: newMoves,
-        completed_lines: bingoState.completedLines,
-        bingo_letters: bingoState.bingoLetters,
-        lines_completed: bingoState.linesCompleted,
-      });
-
-      await insertGameEvent(roomId, {
-        room_id: roomId,
-        player_id: playerId,
-        event_type: newMarked ? "cell_cancelled" : "cell_cancelled",
-        payload: { row, col, marked: newMarked, moves: newMoves, bingoState },
-      });
-
-      if (bingoState.bingoLetters > (current?.completed_lines?.length ?? 0)) {
-        await insertGameEvent(roomId, {
-          room_id: roomId,
-          player_id: playerId,
-          event_type: "bingo_letter",
-          payload: { letters: bingoState.bingoLetters },
-        });
-      }
-
-      if (bingoState.hasBingo) {
-        await insertGameEvent(roomId, {
-          room_id: roomId,
-          player_id: playerId,
-          event_type: "game_won",
-          payload: { moves: newMoves, lines: bingoState.linesCompleted },
-        });
-
-        await updateRoom(roomId, {
-          status: "finished",
-          winner_id: playerId,
-        });
-
-        const room = await firestoreFetchRoom(roomId);
-        const duration = room?.started_at
-          ? formatElapsed(room.started_at)
-          : "0:00";
-
-        const playerCount = await getRoomPlayerCount(roomId);
-
-        await insertHistory({
-          room_id: roomId,
-          winner_id: playerId,
-          moves: newMoves,
-          duration,
-          players_count: playerCount,
-        });
-
-        const winnerProfile = await fetchProfile(playerId);
-        if (winnerProfile) {
-          await updateProfile(playerId, {
-            games_won: winnerProfile.games_won + 1,
-            games_played: winnerProfile.games_played + 1,
-            total_moves: winnerProfile.total_moves + newMoves,
-          });
+        if (selectedNumber === undefined) {
+          throw new Error("Cell is empty or board is missing");
         }
 
-        const allPlayers = await getRoomPlayers(roomId);
-        const losers = allPlayers.filter((p) => p.player_id !== playerId);
+        // Optimistic animation
+        setAnimatingCell(`${row}-${col}`);
+        setTimeout(() => setAnimatingCell(null), 300);
 
-        for (const loser of losers) {
-          const lp = await fetchProfile(loser.player_id);
-          if (lp) {
-            await updateProfile(loser.player_id, {
-              games_played: lp.games_played + 1,
-              total_moves: lp.total_moves + loser.moves,
-            });
-          }
-        }
+        // Single transaction: updates all players, emits events, switches turn
+        await submitMoveTransaction(
+          roomId,
+          effectivePlayerId,
+          allPlayerIds,
+          selectedNumber
+        );
+      } catch (err: any) {
+        console.error("Move failed:", err);
+        window.alert(`Move failed: ${err.message}`);
+      } finally {
+        setIsSubmitting(false);
       }
     },
-    [roomId, playerId, roomPlayerId, marked]
+    [roomId, playerId, roomPlayerId, marked, allPlayerIds, isSubmitting]
   );
-
-
-  const syncFromPlayer = useCallback((player: RoomPlayer) => {
-    if (player.marked) {
-      setMarked(player.marked as MarkedGrid);
-    }
-  }, []);
 
   return {
     marked,
     setMarked,
     animatingCell,
     cancelCell,
-    syncFromPlayer,
+    isSubmitting,
   };
 }
 
-function formatElapsed(startIso: string): string {
-  const elapsed = Date.now() - new Date(startIso).getTime();
-  const mins = Math.floor(elapsed / 60000);
-  const secs = Math.floor((elapsed % 60000) / 1000);
+// Simple helper to format elapsed time in useGame
+function formatDuration(isoString: string) {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diff / 60000);
+  const secs = Math.floor((diff % 60000) / 1000);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
+
 
 export function useGameChat(roomId: string | null, playerId: string | null) {
   const sendMessage = useCallback(

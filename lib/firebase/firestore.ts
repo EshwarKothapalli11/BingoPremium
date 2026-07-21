@@ -12,12 +12,14 @@ import {
   limit,
   deleteDoc,
   runTransaction,
+  serverTimestamp,
   type DocumentData,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import { toProfile, toRoom, toRoomPlayer, toGameEvent, toMessage, toHistoryEntry } from "./helpers";
 import { generateRoomCode } from "@/lib/utils";
-import type { Profile, Room, RoomPlayer, GameEvent, Message, HistoryEntry } from "@/types";
+import { detectBingoState } from "@/lib/bingo-logic";
+import type { Profile, Room, RoomPlayer, GameEvent, Message, GameHistory } from "@/types";
 
 // ─── Collection References ───────────────────────────────────────────
 
@@ -92,12 +94,15 @@ export async function createRoom(
     status: "waiting" as const,
     max_players: maxPlayers,
     winner_id: null,
+    current_turn_id: null,
     started_at: null,
     created_at: new Date().toISOString(),
   };
 
   const roomRef = await addDoc(roomsCol(), roomData);
   const room: Room = { id: roomRef.id, ...roomData };
+  console.log("Room created");
+  console.log("Room written");
 
   // Add host as first player
   await setDoc(doc(db, "rooms", roomRef.id, "players", hostId), {
@@ -113,6 +118,7 @@ export async function createRoom(
     has_submitted_board: false,
     joined_at: new Date().toISOString(),
   });
+  console.log("Player added");
 
   return { room };
 }
@@ -120,23 +126,24 @@ export async function createRoom(
 // ─── Room Players ────────────────────────────────────────────────────
 
 export async function getRoomPlayers(roomId: string): Promise<RoomPlayer[]> {
-  const q = query(roomPlayersCol(roomId), orderBy("joined_at", "asc"));
+  const q = query(roomPlayersCol(roomId));
   const snap = await getDocs(q);
 
-  const players: RoomPlayer[] = [];
-  for (const playerDoc of snap.docs) {
-    const rp = toRoomPlayer(playerDoc.id, playerDoc.data());
+  const players = snap.docs.map((playerDoc) =>
+    toRoomPlayer(playerDoc.id, playerDoc.data())
+  );
+  players.sort((a, b) => a.joined_at.localeCompare(b.joined_at));
 
-    // Attach profile
+  // Fetch all profiles in parallel instead of sequentially
+  const profilePromises = players.map(async (rp) => {
     const profileSnap = await getDoc(doc(db, "profiles", rp.player_id));
     if (profileSnap.exists()) {
       rp.profile = toProfile(profileSnap.id, profileSnap.data());
     }
+    return rp;
+  });
 
-    players.push(rp);
-  }
-
-  return players;
+  return Promise.all(profilePromises);
 }
 
 export async function getRoomPlayerDoc(
@@ -172,6 +179,7 @@ export async function joinRoom(
     has_submitted_board: false,
     joined_at: new Date().toISOString(),
   });
+  console.log("Player added");
 
   return { success: true };
 }
@@ -215,59 +223,250 @@ export async function submitBoardTransaction(
   board: number[][],
   allPlayerIds: string[]
 ): Promise<void> {
+  const currentPlayerRef = doc(db, "rooms", roomId, "players", playerId);
+
+  await updateDoc(currentPlayerRef, {
+    board: board.flat(),
+    marked: Array(25).fill(false),
+    has_submitted_board: true,
+  });
+}
+
+export async function hostAutoStartGame(
+  roomId: string,
+  allPlayerIds: string[],
+  maxPlayers: number
+): Promise<void> {
   const roomRef = doc(db, "rooms", roomId);
   const playerRefs = allPlayerIds.map((id) =>
     doc(db, "rooms", roomId, "players", id)
   );
-  const currentPlayerRef = doc(db, "rooms", roomId, "players", playerId);
 
   await runTransaction(db, async (transaction) => {
-    // 1. Reads
     const roomSnap = await transaction.get(roomRef);
     if (!roomSnap.exists()) return;
+    
+    // Idempotency check
+    if (roomSnap.data().status !== "matrix") return;
 
     const playerSnaps = await Promise.all(
       playerRefs.map((ref) => transaction.get(ref))
     );
 
-    let submittedCount = 0;
-    for (const snap of playerSnaps) {
-      if (snap.id === playerId) {
-        submittedCount++; // Current player is submitting right now
-      } else if (snap.exists() && snap.data().has_submitted_board) {
-        submittedCount++;
-      }
+    const allSubmitted = playerSnaps.every((snap) => snap.exists() && snap.data().has_submitted_board);
+    if (allSubmitted && playerSnaps.length >= maxPlayers) {
+      const randomFirstPlayerId = allPlayerIds[Math.floor(Math.random() * allPlayerIds.length)];
+      transaction.update(roomRef, {
+        status: "playing",
+        current_turn_id: randomFirstPlayerId,
+      });
+      console.log(`[Transaction] Host auto-started game. Turn: ${randomFirstPlayerId}`);
     }
+  });
+}
 
-    const totalPlayers = allPlayerIds.length;
-    console.log(
-      `[Submit] playerId=${playerId}, submittedPlayers=${submittedCount}, totalPlayers=${totalPlayers}, room.status (before)=${
-        roomSnap.data()?.status
-      }`
-    );
+export async function hostAutoFinishGame(
+  roomId: string,
+  winnerId: string,
+  clientPlayers: RoomPlayer[]
+): Promise<void> {
+  const roomRef = doc(db, "rooms", roomId);
+  const historyRef = doc(collection(db, "game_history"));
 
-    // 2. Writes
-    transaction.update(currentPlayerRef, {
-      board: board.flat(),
-      marked: Array(25).fill(false),
-      has_submitted_board: true,
-    });
+  await runTransaction(db, async (transaction) => {
+    const roomSnap = await transaction.get(roomRef);
+    if (!roomSnap.exists()) return;
+    
+    // Idempotency check
+    const roomData = roomSnap.data();
+    if (roomData.status !== "playing") return;
 
-    if (submittedCount >= totalPlayers) {
-      console.log(
-        `[Submit] All players submitted! Changing room.status to 'playing'`
-      );
-      transaction.update(roomRef, { status: "playing" });
-      console.log(`[Submit] room.status updated to 'playing'`);
-    } else {
-      console.log(
-        `[Submit] Waiting for ${totalPlayers - submittedCount} more players.`
-      );
+    const loserId = clientPlayers.find(p => p.player_id !== winnerId)?.player_id;
+    if (!loserId) return; // Need exactly 2 players
+
+    const winnerRef = doc(db, "rooms", roomId, "players", winnerId);
+    const loserRef = doc(db, "rooms", roomId, "players", loserId);
+
+    const winnerSnap = await transaction.get(winnerRef);
+    const loserSnap = await transaction.get(loserRef);
+
+    if (!winnerSnap.exists() || !loserSnap.exists()) return;
+
+    const winnerData = winnerSnap.data();
+    const loserData = loserSnap.data();
+
+    if ((winnerData.lines_completed ?? 0) >= 5) {
+      // 1. Update Room
+      transaction.update(roomRef, {
+        status: "finished",
+        winner_id: winnerId,
+      });
+
+      // 2. Insert Game History
+      const winnerClient = clientPlayers.find(p => p.player_id === winnerId);
+      const loserClient = clientPlayers.find(p => p.player_id === loserId);
+
+      const historyData: GameHistory = {
+        roomId: roomId,
+        roomCode: roomData.code,
+        winner: {
+          uid: winnerId,
+          name: winnerClient?.profile?.username || "Unknown",
+          isHost: roomData.host_id === winnerId,
+          completedLines: winnerData.lines_completed ?? 0,
+          bingoLetters: winnerData.bingo_letters ?? 0,
+          moves: winnerData.moves ?? 0,
+          board: winnerData.board || [],
+          marked: winnerData.marked || [],
+        },
+        loser: {
+          uid: loserId,
+          name: loserClient?.profile?.username || "Unknown",
+          isHost: roomData.host_id === loserId,
+          completedLines: loserData.lines_completed ?? 0,
+          bingoLetters: loserData.bingo_letters ?? 0,
+          moves: loserData.moves ?? 0,
+          board: loserData.board || [],
+          marked: loserData.marked || [],
+        },
+        players: [
+          {
+            uid: winnerId,
+            name: winnerClient?.profile?.username || "Unknown",
+            isHost: roomData.host_id === winnerId,
+            joinedAt: winnerData.joined_at,
+          },
+          {
+            uid: loserId,
+            name: loserClient?.profile?.username || "Unknown",
+            isHost: roomData.host_id === loserId,
+            joinedAt: loserData.joined_at,
+          }
+        ],
+        gameStats: {
+          totalMoves: (winnerData.moves ?? 0) + (loserData.moves ?? 0),
+          durationSeconds: Math.floor((Date.now() - new Date(roomData.started_at).getTime()) / 1000),
+          startedAt: roomData.started_at,
+          endedAt: serverTimestamp(),
+        },
+        createdAt: serverTimestamp(),
+      };
+
+      transaction.set(historyRef, historyData);
+      console.log(`[Transaction] Host declared winner: ${winnerId} and saved history.`);
     }
   });
 }
 
 // ─── Game Events ─────────────────────────────────────────────────────
+
+export async function submitMoveTransaction(
+  roomId: string,
+  playerId: string,
+  allPlayerIds: string[],
+  selectedNumber: number
+): Promise<void> {
+  const roomRef = doc(db, "rooms", roomId);
+
+  // Determine turn order
+  const sortedPlayers = [...allPlayerIds].sort();
+  const currentIndex = sortedPlayers.indexOf(playerId);
+  const nextPlayerId = sortedPlayers[(currentIndex + 1) % sortedPlayers.length];
+
+  console.log(`[LIFECYCLE] 4. Transaction started for player ${playerId}`);
+
+  await runTransaction(db, async (transaction) => {
+    // ── Step 1: Read room, verify turn ──────────────────────────
+    const roomSnap = await transaction.get(roomRef);
+    if (!roomSnap.exists()) throw new Error("Room not found");
+
+    const roomData = roomSnap.data();
+    if (roomData.status !== "playing") throw new Error("Game is not active");
+    if (roomData.current_turn_id !== playerId) throw new Error("Not your turn!");
+
+    // ── Step 2: Read all player documents ───────────────────────
+    const playerRefs = allPlayerIds.map(id => doc(db, "rooms", roomId, "players", id));
+    const playerSnaps = await Promise.all(playerRefs.map(ref => transaction.get(ref)));
+
+    // ── Step 3: Process each player's board ─────────────────────
+    let anyoneHasBingo = false;
+
+    for (let i = 0; i < playerSnaps.length; i++) {
+      const pSnap = playerSnaps[i];
+      if (!pSnap.exists()) continue;
+      const pData = pSnap.data();
+
+      const board1D: number[] = pData.board || [];
+      const marked1D: boolean[] = [...(pData.marked || [])];
+      const moves: number = pData.moves || 0;
+      const existingCompletedLines: string[] = pData.completed_lines || [];
+
+      // Find the selected number on this player's board
+      const numIndex = board1D.indexOf(selectedNumber);
+      if (numIndex === -1) continue;       // Number not on their board
+      if (marked1D[numIndex]) continue;     // Already marked
+
+      // Mark the cell
+      marked1D[numIndex] = true;
+      const newMoves = moves + 1;
+
+      // Convert 1D → 2D for bingo detection
+      const marked2D = Array.from({ length: 5 }, (_, row) =>
+        marked1D.slice(row * 5, row * 5 + 5)
+      );
+      const bingoState = detectBingoState(marked2D, existingCompletedLines);
+
+      // Write updated player document
+      console.log(`[LIFECYCLE] 5a. Executing write: Update player doc (${pData.player_id})`);
+      transaction.update(playerRefs[i], {
+        marked: marked1D,
+        moves: newMoves,
+        completed_lines: bingoState.completedLines,
+        bingo_letters: bingoState.bingoLetters,
+        lines_completed: bingoState.linesCompleted,
+      });
+
+      // Emit bingo_letter event if a new letter was earned
+      if (bingoState.bingoLetters > existingCompletedLines.length) {
+        console.log(`[LIFECYCLE] 5b. Executing write: Create bingo_letter event for ${pData.player_id}`);
+        const letterRef = doc(gameEventsCol(roomId));
+        transaction.set(letterRef, {
+          room_id: roomId,
+          player_id: pData.player_id,
+          event_type: "bingo_letter",
+          payload: { letters: bingoState.bingoLetters },
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      // Track if anyone has reached BINGO
+      if (bingoState.hasBingo) {
+        anyoneHasBingo = true;
+      }
+    }
+
+    // ── Step 4: Insert cell_cancelled game event ────────────────
+    console.log(`[LIFECYCLE] 5c. Executing write: Create cell_cancelled event`);
+    const eventRef = doc(gameEventsCol(roomId));
+    transaction.set(eventRef, {
+      room_id: roomId,
+      player_id: playerId,
+      event_type: "cell_cancelled",
+      payload: { selectedNumber },
+      created_at: new Date().toISOString(),
+    });
+
+    // ── Step 5: Switch turn (unless someone won) ────────────────
+    if (!anyoneHasBingo) {
+      console.log(`[LIFECYCLE] 5d. Executing write: Update room current_turn_id to ${nextPlayerId}`);
+      transaction.update(roomRef, {
+        current_turn_id: nextPlayerId,
+      });
+    }
+  });
+
+  console.log(`[LIFECYCLE] 6. Transaction committed successfully`);
+}
 
 export async function insertGameEvent(
   roomId: string,
@@ -290,19 +489,19 @@ export async function getGameEvents(
     q = query(
       gameEventsCol(roomId),
       where("event_type", "==", eventType),
-      orderBy("created_at", "asc"),
       limit(maxResults)
     );
   } else {
     q = query(
       gameEventsCol(roomId),
-      orderBy("created_at", "asc"),
       limit(maxResults)
     );
   }
 
   const snap = await getDocs(q);
-  return snap.docs.map((d) => toGameEvent(d.id, d.data()));
+  const events = snap.docs.map((d) => toGameEvent(d.id, d.data()));
+  events.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return events;
 }
 
 // ─── Messages ────────────────────────────────────────────────────────
@@ -320,11 +519,12 @@ export async function insertMessage(
 
 export async function getMessages(roomId: string): Promise<Message[]> {
   const q = query(
-    messagesCol(roomId),
-    orderBy("created_at", "asc")
+    messagesCol(roomId)
   );
   const snap = await getDocs(q);
-  return snap.docs.map((d) => toMessage(d.id, d.data()));
+  const messages = snap.docs.map((d) => toMessage(d.id, d.data()));
+  messages.sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return messages;
 }
 
 // ─── History ─────────────────────────────────────────────────────────
