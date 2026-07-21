@@ -93,6 +93,17 @@ export interface GameHistory {
   createdAt: any; // FieldValue or Timestamp
 }
 
+export interface HistoryEntry {
+  id: string;
+  room_id: string;
+  winner_id: string;
+  moves: number;
+  duration: string;
+  players_count: number;
+  created_at: string;
+  winner?: Profile;
+}
+
 export type BoardGrid = number[][];
 export type MarkedGrid = boolean[][];
 

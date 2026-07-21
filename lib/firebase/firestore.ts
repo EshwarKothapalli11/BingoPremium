@@ -19,7 +19,7 @@ import { db } from "./firebase";
 import { toProfile, toRoom, toRoomPlayer, toGameEvent, toMessage, toHistoryEntry } from "./helpers";
 import { generateRoomCode } from "@/lib/utils";
 import { detectBingoState } from "@/lib/bingo-logic";
-import type { Profile, Room, RoomPlayer, GameEvent, Message, GameHistory } from "@/types";
+import type { Profile, Room, RoomPlayer, GameEvent, Message, GameHistory, HistoryEntry } from "@/types";
 
 // ─── Collection References ───────────────────────────────────────────
 

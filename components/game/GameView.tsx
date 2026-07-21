@@ -23,8 +23,6 @@ interface GameViewProps {
 
 export function GameView({ currentUser }: GameViewProps) {
   const { room, players, messages, liveMoves } = useRoomContext();
-  
-  if (!room) return null;
 
   const currentPlayer = players.find((p) => p.player_id === currentUser.id);
   const opponents = players.filter((p) => p.player_id !== currentUser.id);
@@ -37,9 +35,9 @@ export function GameView({ currentUser }: GameViewProps) {
     animatingCell,
     cancelCell,
     isSubmitting,
-  } = useGame(room.id, currentUser.id, currentPlayer?.id ?? null, allPlayerIds);
+  } = useGame(room?.id ?? null, currentUser.id, currentPlayer?.id ?? null, allPlayerIds);
 
-  const { sendMessage } = useGameChat(room.id, currentUser.id);
+  const { sendMessage } = useGameChat(room?.id ?? null, currentUser.id);
   const [pulseLetter, setPulseLetter] = useState<number | null>(null);
   const [, setTick] = useState(0);
 
@@ -62,17 +60,18 @@ export function GameView({ currentUser }: GameViewProps) {
     }
   }, [liveMoves, currentUser.id]);
 
-  const isMyTurn = room.current_turn_id === currentUser.id;
+  const isMyTurn = room?.current_turn_id === currentUser.id;
 
   // --- LIFECYCLE LOGGING ---
   useEffect(() => {
+    if (!room) return;
     console.log(`[LIFECYCLE] Realtime listener update received.`);
     console.log(`[LIFECYCLE] 1. user.uid:`, currentUser.id);
     console.log(`[LIFECYCLE] 2 & 7. room.current_turn_id:`, room.current_turn_id);
     console.log(`[LIFECYCLE] 3 & 9. isMyTurn evaluates to:`, isMyTurn);
     console.log(`[LIFECYCLE] room.status:`, room.status);
     console.log(`[LIFECYCLE] isSubmittingMove evaluates to:`, isSubmitting);
-  }, [room.current_turn_id, room.status, isMyTurn, currentUser.id, isSubmitting]);
+  }, [room?.current_turn_id, room?.status, isMyTurn, currentUser.id, isSubmitting, room]);
 
   // Sync marked state from Firestore realtime listener (single source of truth)
   useEffect(() => {
@@ -87,9 +86,11 @@ export function GameView({ currentUser }: GameViewProps) {
   }, []);
 
   const winner = useMemo(() => {
-    if (!room.winner_id) return null;
+    if (!room?.winner_id) return null;
     return players.find((p) => p.player_id === room.winner_id);
-  }, [room.winner_id, players]);
+  }, [room?.winner_id, players]);
+
+  if (!room) return null;
 
   const board = currentPlayer?.board ?? Array.from({ length: 5 }, () => Array(5).fill(0));
   const completedLines = (currentPlayer?.completed_lines as string[]) ?? [];
